@@ -404,6 +404,44 @@ table.adm-tbl .zero { color: var(--accent); }
 .adm-msg.bad { color: var(--accent); }
 .adm-msg.ok { color: var(--good); }
 .adm-note { font-size: 12px; color: var(--muted); margin: 0; }
+/* v2：版本号、拆对标、A/B、选填提示 */
+.ver { border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); border-radius: 999px; font-size: 11px; padding: 1px 8px; cursor: pointer; font-family: var(--f-mono); }
+.ver:hover { color: var(--ink); border-color: var(--ink); }
+.chk.tip { background: var(--surface-2); color: var(--muted); }
+.v.opt { background: transparent; color: var(--muted); border: 1px dashed var(--line); border-radius: 4px; padding: 0 4px; font-size: .92em; }
+.brk-body { grid-template-columns: minmax(0, 380px) minmax(0, 1fr); }
+.gfield textarea.sm { min-height: 72px; }
+.bdata { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.bdata label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); }
+.bdata input { min-width: 0; width: 100%; }
+.shots { display: flex; gap: 8px; flex-wrap: wrap; }
+.shot { width: 72px; height: 96px; border-radius: 8px; background: var(--surface-2) center / cover no-repeat; border: 1px solid var(--line); position: relative; display: grid; place-items: center; font-size: 22px; color: var(--muted); cursor: pointer; }
+.shot .x { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: rgba(30,31,59,.75); color: #fff; font-size: 13px; line-height: 20px; padding: 0; cursor: pointer; }
+.brklib { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.brklib button { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; display: grid; gap: 2px; cursor: pointer; color: var(--ink); font: inherit; }
+.brklib button:hover, .brklib li.on button { border-color: var(--ink); }
+.brklib b { font-size: 13px; }
+.brklib span { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.brklib .dot { display: inline-block; margin-right: 4px; }
+.topics { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.topics li { border-top: 1px dashed var(--line); padding-top: 10px; }
+.topics li:first-child { border-top: 0; padding-top: 0; }
+.tp-h { display: flex; gap: 8px; align-items: center; }
+.topics p { margin: 4px 0 0; }
+.topics .rep { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+table.sig td { vertical-align: top; font-size: 13px; }
+table.sig td:first-child { white-space: nowrap; color: var(--muted); }
+.hookpick { display: grid; gap: 6px; }
+.hookpick label { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.hookpick label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.hookpick input { margin-top: 4px; }
+.box.ai { border-color: var(--b-ink); }
+.ablist { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.ablist li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.abk { width: 24px; height: 24px; border-radius: 6px; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.abt { font-size: 14px; }
+.abtest { margin: 0 0 4px; font-size: 13px; }
+@media (max-width: 860px) { .brk-body { grid-template-columns: minmax(0, 1fr); } .bdata { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 860px) { .adm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .adm-new { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .adm-new { grid-template-columns: minmax(0, 1fr); } .stat b { font-size: 26px; } .who { max-width: 170px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
@@ -411,8 +449,9 @@ table.adm-tbl .zero { color: var(--accent); }
 
 <header class="top">
   <div class="wrap top-row">
-    <div class="brand"><span class="mark">U</span><b>脱毛吧引流素材台</b><small>抖音 · 小红书 · 视频号 · 朋友圈</small></div>
+    <div class="brand"><span class="mark">U</span><b>脱毛吧引流素材台</b><button class="ver" id="btnLog" type="button" title="看更新了什么"><span id="ver"></span></button><small>抖音 · 小红书 · 视频号 · 朋友圈</small></div>
     <div class="store-pick"><label for="citySel">城市</label><select id="citySel" aria-label="城市"></select><span class="sep" aria-hidden="true"></span><label for="storeSel">门店</label><select id="storeSel" aria-label="门店"></select></div>
+    <button class="btn accent" id="btnBreak" type="button">拆对标</button>
     <button class="btn" id="btnStore" type="button">门店与价格</button>
     <button class="btn" id="btnPhotos" type="button">门店图库</button>
     <button class="btn ghost" id="btnBackup" type="button">备份 / 导入</button>
@@ -430,6 +469,7 @@ table.adm-tbl .zero { color: var(--accent); }
 
 <div id="layer"></div>
 
+<script src="compliance.js?v=20261029b"></script>
 <script src="base.js?v=20261029b"></script>
 <script src="stores.js?v=20261029b"></script>
 <script src="content_douyin.js?v=20261029b"></script>
@@ -441,4 +481,5 @@ table.adm-tbl .zero { color: var(--accent); }
 <script src="playbook_sph.js?v=20261029b"></script>
 <script src="playbook_pyq.js?v=20261029b"></script>
 <script src="gen.js?v=20261029b"></script>
+<script src="breakdown.js?v=20261029b"></script>
 <script src="app.js?v=20261029b"></script>

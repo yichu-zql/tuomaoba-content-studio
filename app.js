@@ -39,7 +39,10 @@
     stores: mergeStores(load('tmb.stores', null)),
     cur: load('tmb.cur', 's1'),
     prices: Object.assign(defaults(VARS.price), load('tmb.prices', {})),
-    photos: {}, open: null, editing: {}, ai: null
+    breaks: load('tmb.breaks', []),
+    photos: {}, open: null, editing: {}, brk: null,
+    /* 只有在 claude.ai 里打开时才有 window.claude，GitHub Pages 上这些按钮不出现 */
+    ai: !!(window.claude && typeof window.claude.use === 'function')
   };
   if (ORDER.indexOf(state.tab) < 0) state.tab = 'douyin';
   if (!state.stores.some(function (s) { return s.id === state.cur; })) state.cur = state.stores[0].id;
@@ -53,27 +56,41 @@
 
   /* ---------- 文本与合规 ---------- */
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  /* 选填的门店信息（楼层入口、营业时间、周边、商圈）没填时：只剩标签的那一段（用“｜”分隔）或那一行直接去掉，句子里的直接省略，
+     复制出去的文案不会出现“营业时间 ｜”这种空白；必填的（店名、商场等）仍然显示【待填】 */
+  var OPTIONAL = { '位置': 1, '营业时间': 1, '周边': 1, '区域': 1 };
+  function missOpt(seg, v) { return (seg.match(/\{([^{}\n]+)\}/g) || []).filter(function (x) { var k = x.slice(1, -1); return OPTIONAL[k] && (k in v) && !v[k]; }); }
+  function dropEmpty(s, v) {
+    if (s.indexOf('{') < 0) return s;
+    return s.split('\n').map(function (line) {
+      var segs = line.split('｜'), keep = segs.filter(function (seg) {
+        var miss = missOpt(seg, v); if (!miss.length) return true;
+        var rest = seg; miss.forEach(function (x) { rest = rest.split(x).join(''); });
+        return /\{[^{}\n]+\}/.test(rest) || rest.replace(/[\s📍⏰🕘🍜🚇🅿️：:，,。#·\-—]/g, '').length > 6;
+      });
+      if (!keep.length) return null;
+      return keep.join('｜');
+    }).filter(function (l) { return l !== null; }).join('\n');
+  }
   function resolve(t) {
     var v = allVars();
-    return String(t == null ? '' : t).replace(/\{([^{}\n]+)\}/g, function (m, k) { if (!(k in v)) return m; return v[k] ? v[k] : '【待填：' + (LABELS[k] || k) + '】'; });
+    var s = dropEmpty(String(t == null ? '' : t), v);
+    s = s.replace(/\{([^{}\n]+)\}/g, function (m, k) { if (!(k in v)) return m; return v[k] ? v[k] : OPTIONAL[k] ? '' : '【待填：' + (LABELS[k] || k) + '】'; });
+    return s.replace(/(^|\s)#(?=\s|$)/g, '$1').replace(/ {2,}/g, ' ').replace(/，，/g, '，');
   }
-  var BAN = ['永久', '根治', '治疗', '治愈', '疗效', '医用', '医院级', '医疗级', '无副作用', '零风险', '包好', '一次见效', '立刻见效', '彻底告别', '顶级', '极致', '唯一', '首选', '全网最低', '100%', '绝对', '保证效果', '无痛', '不痛', '零痛感', '国家级'];
-  var CAU_ALL = ['比基尼', '私处'];
-  var CAU_SOCIAL = ['美团', '大众点评', '某团', '微信', 'vx', 'VX', '加V', '私信', '二维码', '链接'];
-  function reEsc(x) { return x.replace(/[.*+?^${}()|[\]\\%]/g, '\\$&'); }
-  var BAN_RE = new RegExp(BAN.map(reEsc).concat(['第一(?![次个周张单天步篇轮视])', '最(?![近多后少低至])']).join('|'), 'g');
-  function cauRe(p) { var l = CAU_ALL.concat(p === 'douyin' || p === 'xhs' ? CAU_SOCIAL : []); return new RegExp(l.map(reEsc).join('|'), 'g'); }
-  function scanText(text, p) {
-    var out = [], m; BAN_RE.lastIndex = 0;
-    while ((m = BAN_RE.exec(text))) out.push({ w: m[0], lv: 'ban' });
-    var cr = cauRe(p); while ((m = cr.exec(text))) out.push({ w: m[0], lv: 'cau' });
+  /* 当前门店没填的选填信息（提醒用，不阻塞复制） */
+  function optMissing(it) {
+    var v = allVars(), raw = JSON.stringify(it.f) + JSON.stringify(it.frames || []), out = [];
+    Object.keys(OPTIONAL).forEach(function (k) { if (!v[k] && raw.indexOf('{' + k + '}') >= 0) out.push(LABELS[k] || k); });
     return out;
   }
+  /* 合规词表在 compliance.js，全站一份 */
+  var RULES = window.TMB_RULES, BAN_RE = RULES.banRe, cauRe = RULES.cauRe, scanText = RULES.scan;
   function renderTpl(t, p) {
     var v = allVars(), cr = cauRe(p);
     return String(t == null ? '' : t).split(/(\{[^{}\n]+\})/g).map(function (part) {
       var m = part.match(/^\{([^{}\n]+)\}$/);
-      if (m && (m[1] in v)) return v[m[1]] ? '<span class="v" title="' + esc(LABELS[m[1]] || m[1]) + '">' + esc(v[m[1]]) + '</span>' : '<span class="v miss">待填：' + esc(LABELS[m[1]] || m[1]) + '</span>';
+      if (m && (m[1] in v)) return v[m[1]] ? '<span class="v" title="' + esc(LABELS[m[1]] || m[1]) + '">' + esc(v[m[1]]) + '</span>' : (OPTIONAL[m[1]] ? '<span class="v opt" title="选填，没填时复制会自动省略">' + esc(LABELS[m[1]] || m[1]) + ' 未填</span>' : '<span class="v miss">待填：' + esc(LABELS[m[1]] || m[1]) + '</span>');
       var h = esc(part).replace(BAN_RE, function (x) { return '<mark class="ban" title="禁用词">' + x + '</mark>'; });
       return h.replace(cr, function (x) { return '<span class="cau" title="站外导流词，可能限流">' + x + '</span>'; });
     }).join('');
@@ -238,7 +255,7 @@
     var b = pb(state.tab, t.name); if (!b) return '';
     return '<button class="card pbcard" type="button" data-pb="' + i + '"><div class="thumb"><div class="pbthumb"><span class="pbk">爆款拆解</span><b>' + esc(t.name) + '</b>' +
       '<dl><dt>内容公式</dt><dd>' + esc(b.content.formula) + '</dd><dt>文案公式</dt><dd>' + esc(b.copy.formula) + '</dd></dl></div></div>' +
-      '<div class="meta"><div class="ttl">外部爆款案例与公式</div><div class="row"><span class="pill">' + b.cases.length + ' 个案例拆解</span></div><div class="row"><span class="pill">' + b.copy.titles.length + ' 个标题公式</span></div><div class="foot"><span>点开看完整拆解</span></div></div></button>';
+      '<div class="meta"><div class="ttl">外部爆款案例与公式</div><div class="row"><span class="pill">' + b.cases.length + ' 个案例拆解</span>' + (brkFor(state.tab, t.name).length ? '<span class="pill mine">团队拆过 ' + brkFor(state.tab, t.name).length + ' 条</span>' : '') + '</div><div class="row"><span class="pill">' + b.copy.titles.length + ' 个标题公式</span></div><div class="foot"><span>点开看完整拆解</span></div></div></button>';
   }
   function pbPanel(themeIdx) {
     var t = PLATS[state.tab].themes[themeIdx], b = pb(state.tab, t.name); if (!b) return;
@@ -257,7 +274,12 @@
       '<div class="box"><h3>爆款内容的特点</h3>' + li(b.traits) + '</div>' +
       '<div class="box"><h3>内容拆解与公式</h3><div class="formula">' + esc(b.content.formula) + '</div>' + steps + '<h4 class="sub-h">拍摄 / 排版要点</h4>' + li(b.content.tips) + '</div>' +
       '<div class="box"><h3>文案拆解与公式</h3><div class="formula">' + esc(b.copy.formula) + '</div><h4 class="sub-h">标题公式</h4>' + li(b.copy.titles) + '<h4 class="sub-h">开头钩子</h4>' + li(b.copy.hooks) + '<h4 class="sub-h">结尾引导</h4>' + li(b.copy.ctas) + '<h4 class="sub-h">不要这样写</h4>' + li(b.copy.avoid) + '</div>' +
-      '</div><div class="col"><div class="box"><h3>外部优秀案例拆解<span class="note">' + b.cases.length + ' 个</span></h3><div class="cases">' + cases + '</div></div></div></div></aside>';
+      '</div><div class="col">' + pbMine(t.name) + '<div class="box"><h3>外部优秀案例拆解<span class="note">' + b.cases.length + ' 个</span></h3><div class="cases">' + cases + '</div></div></div></div></aside>';
+  }
+  /* 团队自己拆过、归到这个主题的对标 */
+  function pbMine(theme) {
+    var l = brkFor(state.tab, theme);
+    return '<div class="box"><h3>团队拆过的对标<span class="note">' + l.length + ' 条</span></h3>' + (l.length ? '<ul class="brklib">' + l.map(function (b) { return '<li><button type="button" data-brk="' + esc(b.id) + '"><b>' + esc(brkName(b)) + '</b><span>' + esc(b.result.formula) + '</span></button></li>'; }).join('') + '</ul>' : '<p class="note">还没有。看到同类爆款，点顶部“拆对标”粘进来，拆完会自动归到对应主题。</p>') + '<div class="m-acts" style="margin-top:8px"><button class="btn sm" type="button" data-openbrk="1">拆一条对标</button></div></div>';
   }
   function pbText(themeIdx) {
     var t = PLATS[state.tab].themes[themeIdx], b = pb(state.tab, t.name);
@@ -339,6 +361,13 @@
     var r = (it.basedOn || []).map(byId).filter(Boolean);
     return r.length ? '<div class="pills"><span class="note">参考：</span>' + r.map(function (x) { return '<button class="chip" type="button" data-open="' + esc(x.id) + '">' + esc(resolve(x.title)) + '</button>'; }).join('') + '</div>' : '';
   }
+  function abBox(it) {
+    var ab = abOf(it); if (!ab || (!ab.hooks.length && !ab.test)) return '';
+    var L = ['A', 'B', 'C'];
+    return '<div class="box"><h3>钩子备选 · A/B 测试<span class="note">同一条内容换个开头，看哪个更留人</span></h3>' +
+      (ab.hooks.length ? '<ul class="ablist">' + ab.hooks.map(function (h, i) { return '<li><span class="abk">' + L[i] + '</span><span class="abt">' + renderTpl(h, it.p) + (ab.labels && ab.labels[i] ? '<em class="note">　' + esc(ab.labels[i]) + '</em>' : '') + '</span><button class="btn sm" type="button" data-act="abcopy" data-h="' + esc(h) + '">复制</button></li>'; }).join('') + '</ul>' : '') +
+      (ab.test ? '<p class="abtest">' + esc(resolve(ab.test)) + '</p>' : '') + '<p class="note">看哪个数定胜负：' + esc(ab.metric) + '</p></div>';
+  }
   function renderDrawer() {
     var it = state.open; if (!it) return;
     var keep = layer.querySelector('.d-body'), st = keep ? keep.scrollTop : 0;
@@ -349,6 +378,8 @@
       : '<div class="chk ok"><b>合规检查：通过</b>没有功效宣称、绝对化用语和站外导流词。</div>';
     var missing = itemText(it).match(/【待填：[^】]+】/g);
     if (missing) chk += '<div class="chk warn"><b>门店信息待填：' + uniq(missing).join(' ').replace(/【待填：|】/g, ' ') + '</b>在“门店与价格”里填好后自动替换。</div>';
+    var opt = optMissing(it);
+    if (opt.length) chk += '<div class="chk tip"><b>本店还没填：' + opt.join('、') + '</b>复制时会自动省略这几处；填上后文案更具体，路线类内容更好用。</div>';
     var b = it.brief, video = it.p === 'douyin' || it.p === 'sph';
     var fr = it.frames || [], cur = Math.min(state.frame || 0, Math.max(0, fr.length - 1));
     var coverFields = [['coverMain', '封面大字', 'long'], ['coverSub', '封面小字', 'text']];
@@ -357,7 +388,7 @@
       (edited(it) ? '<button class="btn" type="button" data-act="resetall">全部恢复默认</button>' : '') + '<button class="btn" type="button" data-close>关闭</button>';
     layer.innerHTML = '<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dTitle">' +
       '<div class="d-head"><div><div class="pills" style="margin:0"><span class="pill"><i class="dot ' + it.p + '"></i>' + PLATS[it.p].name + ' · ' + esc(it.acct) + '</span><span class="pill">' + esc(it.type) + '</span><span class="pill">' + esc(it.form || '') + '</span><span class="pill ' + a[0] + '">' + a[1] + '</span><span class="pill">' + esc(resolve(it.when)) + ' · ' + esc(it.freq) + '</span>' + (it.custom ? '<span class="pill mine">' + (it.ai ? 'Claude 生成' : '快速生成') + '</span>' : '') + '</div>' +
-      '<h2 id="dTitle">' + esc(resolve(it.title)) + '</h2><p class="angle">' + esc(resolve(it.angle)) + '</p>' + refLinks(it) + '</div><div class="acts">' + acts + '</div></div>' +
+      '<h2 id="dTitle">' + esc(resolve(it.title)) + '</h2><p class="angle">' + esc(resolve(it.angle)) + '</p>' + refLinks(it) + (it.fromBreak && brkOf(it.fromBreak) ? '<div class="pills"><span class="note">改写自对标：</span><button class="chip" type="button" data-brk="' + esc(it.fromBreak) + '">' + esc(brkName(brkOf(it.fromBreak))) + '</button></div>' : '') + '</div><div class="acts">' + acts + '</div></div>' +
       '<div class="d-body"><div class="col">' +
       (fr.length ? '<div class="box"><h3>画面 · ' + fr.length + ' 张<span class="note">' + esc(fr[cur].role) + '</span></h3><div class="frview ' + frameRatio(it) + '"><button class="frnav" type="button" data-frame="' + ((cur - 1 + fr.length) % fr.length) + '" aria-label="上一张">‹</button><div class="frmain">' + frameHTML(it, fr[cur], cur) + '</div><button class="frnav" type="button" data-frame="' + ((cur + 1) % fr.length) + '" aria-label="下一张">›</button></div>' +
         '<div class="frthumbs">' + fr.map(function (f, i) { return '<button type="button" class="frthumb' + (i === cur ? ' on' : '') + '" data-frame="' + i + '" aria-label="第 ' + (i + 1) + ' 张">' + frameHTML(it, f, i, true) + '</button>'; }).join('') + '</div></div>'
@@ -373,6 +404,7 @@
           '<dl class="brief"><dt>公式</dt><dd><b>' + esc(f.formula) + '</b></dd><dt>排版</dt><dd>' + esc(f.layout) + '</dd><dt>风格</dt><dd>' + esc(f.style || '') + '</dd><dt>图上文字</dt><dd>' + renderTpl(main, it.p) + (sub ? '<br><span class="note">' + renderTpl(sub, it.p) + '</span>' : '') + (f.note ? '<br><span class="note">' + renderTpl(f.note, it.p) + '</span>' : '') + '</dd>' +
           (f.slot ? '<dt>底图</dt><dd>' + esc(SLOTS[f.slot] ? SLOTS[f.slot].name + '：' + SLOTS[f.slot].guide : f.slot) + '</dd>' : '') + (f.ref ? '<dt>参考</dt><dd><button class="chip" type="button" data-ref="' + esc(f.ref) + '">' + esc(REFS[f.ref] || f.ref) + '</button></dd>' : '') + '</dl></li>';
       }).join('') + '</ol></div>' : '') +
+      abBox(it) +
       '<div class="box"><h3>文案<span class="note">黄色底 = 门店变量</span></h3>' + fieldsOf(it).map(function (f) { return fieldHTML(it, f); }).join('') + '</div>' +
       '</div></div></aside>';
     var nb = layer.querySelector('.d-body'); if (nb) nb.scrollTop = st;
@@ -408,7 +440,7 @@
     layer.innerHTML = '<div class="scrim" data-close></div><div class="modal" role="dialog" aria-modal="true" aria-labelledby="gTitle" id="genForm">' +
       '<h2 id="gTitle">新创意 · ' + P.name + ' · ' + theme + '</h2><p class="sub">写下你想要的创意和形式，生成一条完整的创意：标题、封面、' + (p === 'pyq' ? '朋友圈文案' : p === 'xhs' ? '正文' : '分镜和文案') + '、要拍的门店图和合规检查。生成后可以继续改。</p>' +
       '<div class="gen-grid">' +
-      '<div class="gfield">你的创意想法<textarea id="gIdea" placeholder="' + esc(IDEA_HINT[theme] || '写一句你想要的创意') + '">' + esc(gen.idea) + '</textarea></div>' +
+      '<div class="gfield">你的创意想法<textarea id="gIdea" placeholder="' + esc(IDEA_HINT[theme] || '写一句你想要的创意') + '">' + esc(gen.idea) + '</textarea>' + genBrkChips(p, theme) + '</div>' +
       '<div class="gfield">账号' + seg('acct', accts) + '</div>' +
       '<div class="gfield">形式' + seg('form', P.forms) + '</div>' +
       '<div class="gfield">主打卖点（可多选，最多 3 个）' + seg('points', window.TMB_SELLING, true) + '</div>' +
@@ -419,9 +451,16 @@
     renderGenButtons();
     setTimeout(function () { var t = document.getElementById('gIdea'); if (t) t.focus(); }, 30);
   }
+  /* 拆过的同平台对标：点一下把改写好的钩子填进想法 */
+  function genBrkChips(p, theme) {
+    var l = brkFor(p, theme); if (!l.length) l = brkFor(p);
+    if (!l.length) return '';
+    return '<div class="pills" style="margin-top:6px"><span class="note">用拆过的对标：</span>' + l.slice(0, 4).map(function (b) { return '<button class="chip" type="button" data-gbrk="' + esc(b.id) + '" title="' + esc(b.result.formula) + '">' + esc(brkName(b)) + '</button>'; }).join('') + '</div>';
+  }
   function renderGenButtons() {
     var el = document.getElementById('gActs'); if (!el) return;
-    el.innerHTML = '<span class="note">从团队积累的 ' + items().length + ' 条创意和本模块的爆款公式里找最接近的，按你的想法改写</span><button class="btn accent" type="button" data-act="genlocal">生成创意</button><button class="btn" type="button" data-close>取消</button>';
+    var q = quota(), aiBtn = state.ai ? (q.left > 0 ? '<button class="btn" type="button" data-act="genai">用 Claude 生成（剩 ' + q.left + ' 次）</button>' : '<button class="btn" type="button" disabled>Claude 次数用完，' + hhmm(q.reset) + ' 恢复</button>') : '';
+    el.innerHTML = '<span class="note">从团队积累的 ' + items().length + ' 条创意、拆过的 ' + state.breaks.length + ' 条对标和本模块的爆款公式里找最接近的，按你的想法改写</span><button class="btn accent" type="button" data-act="genlocal">快速生成</button>' + aiBtn + '<button class="btn" type="button" data-close>取消</button>';
   }
   function readGen() {
     gen.idea = (document.getElementById('gIdea') || {}).value || '';
@@ -454,6 +493,177 @@
       });
   }
 
+  /* ---------- 拆对标：粘贴对标爆款 → 拆解 → 改写成本店创意 ---------- */
+  var BRK = window.TMB_BREAK;
+  function brkBlank(p) { return { p: p || state.tab, url: '', title: '', cover: '', body: '', comments: '', data: {}, shots: [] }; }
+  function brkOf(id) { return state.breaks.filter(function (b) { return b.id === id; })[0] || null; }
+  function brkName(rec) { return clip1(rec.input.title || rec.input.cover || rec.input.body, 22) || '未命名对标'; }
+  function clip1(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s; }
+  function brkFor(p, theme) { return state.breaks.filter(function (b) { return b.input.p === p && (!theme || b.result.map.theme === theme); }); }
+  function openBreak(id) {
+    var rec = id ? brkOf(id) : null;
+    state.brk = rec ? { id: rec.id, input: JSON.parse(JSON.stringify(rec.input)), result: rec.result, saved: true } : { id: null, input: brkBlank(), result: null, saved: false };
+    renderBreak();
+  }
+  function readBreak() {
+    var b = state.brk, g = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+    if (!document.getElementById('bTitle')) return;
+    b.input.url = g('bUrl').trim(); b.input.title = g('bTitle'); b.input.cover = g('bCover'); b.input.body = g('bBody'); b.input.comments = g('bCmt');
+    ['play', 'like', 'fav', 'cmt', 'share'].forEach(function (k) { b.input.data[k] = g('bd-' + k).trim(); });
+  }
+  var BRK_DATA = [['play', '播放'], ['like', '点赞'], ['fav', '收藏'], ['cmt', '评论'], ['share', '转发']];
+  function brkForm() {
+    var b = state.brk, x = b.input;
+    var plat = '<div class="seg" role="group" aria-label="对标来自哪个平台">' + ORDER.map(function (k) { return '<button class="chip" type="button" data-bp="' + k + '" aria-pressed="' + (x.p === k) + '">' + PLATS[k].name + '</button>'; }).join('') + '</div>';
+    var shots = (x.shots || []).map(function (s, i) { return '<div class="shot" style="background-image:url(' + s + ')"><button type="button" class="x" data-act="brkshotdel" data-i="' + i + '" aria-label="删除截图">×</button></div>'; }).join('');
+    return '<div class="box"><h3>1 · 粘贴对标<span class="note">只分析你粘贴的内容，不联网抓数据</span></h3><div class="gen-grid">' +
+      '<div class="gfield">对标来自' + plat + '</div>' +
+      '<label class="gfield">标题 / 口播第一句<input id="bTitle" value="' + esc(x.title) + '" placeholder="比如：美容院一次 300，我在楼下花 19.9 搞定了"></label>' +
+      '<label class="gfield">封面大字（选填）<input id="bCover" value="' + esc(x.cover) + '" placeholder="封面上最大的那行字"></label>' +
+      '<label class="gfield">正文 / 口播全文<textarea id="bBody" placeholder="小红书复制正文；抖音复制文案，口播可以用字幕或自己听写">' + esc(x.body) + '</textarea></label>' +
+      '<label class="gfield">热门评论（选填，一行一条，5–10 条就够）<textarea id="bCmt" class="sm" placeholder="复制点赞多的评论，能看出大家在关心什么">' + esc(x.comments) + '</textarea></label>' +
+      '<div class="gfield">页面上的数据（选填，不填就不判断爆的类型）<div class="bdata">' + BRK_DATA.map(function (d) { return '<label>' + d[1] + '<input id="bd-' + d[0] + '" inputmode="decimal" value="' + esc(x.data[d[0]] || '') + '" placeholder="如 1.2w"></label>'; }).join('') + '</div></div>' +
+      '<label class="gfield">链接（选填，方便回看）<input id="bUrl" value="' + esc(x.url) + '" placeholder="https://"></label>' +
+      '<div class="gfield">截图（选填，存着回看，不会自动识别文字）<div class="shots">' + shots + ((x.shots || []).length < 3 ? '<label class="shot add">+<input type="file" accept="image/*" hidden id="bShot"></label>' : '') + '</div></div>' +
+      '</div><div class="m-acts"><span class="note" id="bStatus" aria-live="polite"></span><button class="btn accent" type="button" data-act="brkrun">开始拆解</button>' + (state.ai ? '<button class="btn" type="button" data-act="brkai">用 Claude 深度拆解</button>' : '') + '</div></div>';
+  }
+  function brkLib() {
+    var cur = state.brk && state.brk.id;
+    if (!state.breaks.length) return '<div class="box"><h3>拆解库</h3><p class="note">拆过的对标会存在这里（当前浏览器，会跟着“备份 / 导入”一起带走）。拆得越多，空白创意和爆款公式越贴近你们自己的赛道。</p></div>';
+    return '<div class="box"><h3>拆解库<span class="note">' + state.breaks.length + ' 条</span></h3><ul class="brklib">' + state.breaks.map(function (b) {
+      return '<li class="' + (b.id === cur ? 'on' : '') + '"><button type="button" data-brk="' + esc(b.id) + '"><i class="dot ' + b.input.p + '"></i><b>' + esc(brkName(b)) + '</b><span>' + esc(b.result.hooks[0].label + ' · ' + b.result.struct.label + ' · ' + b.result.map.theme) + '</span></button></li>';
+    }).join('') + '</ul></div>';
+  }
+  function brkEmpty() {
+    return '<div class="box"><h3>怎么用</h3><ol class="pbsteps">' +
+      [['找 3–5 条同类爆款', '抖音 / 小红书搜“自助脱毛”“脱毛 + 你的城市”，挑点赞或收藏明显高的'], ['粘进左边', '标题、正文或口播、热评；有数据就填上点赞收藏'], ['看拆解，一键改写', '告诉你它为什么火、我们能借什么、哪些不能照搬，再生成本店创意']].map(function (r, i) { return '<li><div class="ps-h"><span class="frn">' + (i + 1) + '</span><b>' + r[0] + '</b></div><p>' + r[1] + '</p></li>'; }).join('') +
+      '</ol></div><div class="box"><h3>拆什么</h3><dl class="brief"><dt>钩子</dt><dd>前 3 秒 / 标题第一句用了哪一招：结果前置、反常识、身份点名、提问、实测、清单</dd><dt>情绪</dt><dd>戳中的是怕疼、怕贵、怕麻烦、怕尴尬，还是想变美、占便宜</dd><dt>结构</dt><dd>对比算账、清单、反转、实测 vlog、剧情、问答</dd><dt>互动</dt><dd>评论区在聊什么，作者怎么把人引到评论区</dd><dt>数据</dt><dd>收藏 / 点赞高 = 干货型；评论 / 点赞高 = 话题型；转发多 = 适合拉新</dd></dl></div>';
+  }
+  function brkResult() {
+    var b = state.brk, r = b.result; if (!r) return brkEmpty();
+    var P = PLATS[b.input.p], m = r.map, h0 = r.hooks[0];
+    var themes = P.themes.map(function (t) { return t.name; });
+    var sel = function (id, list, cur) { return '<select id="' + id + '">' + list.map(function (x) { return '<option' + (x === cur ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>'; };
+    var hooks = m.hooks.concat(m.skeleton ? [m.skeleton] : []);
+    var ai = r.ai ? '<div class="box ai"><h3>Claude 补充<span class="note">基于你粘贴的内容</span></h3><dl class="brief">' + (r.ai.why ? '<dt>为什么火</dt><dd>' + esc(r.ai.why) + '</dd>' : '') + (r.ai.audience ? '<dt>谁在看</dt><dd>' + esc(r.ai.audience) + '</dd>' : '') + ((r.ai.borrow || []).length ? '<dt>能借的</dt><dd>' + r.ai.borrow.map(esc).join('<br>') + '</dd>' : '') + ((r.ai.cover || []).length ? '<dt>封面</dt><dd>' + r.ai.cover.map(function (c) { return esc(resolve(c)); }).join('<br>') + '</dd>' : '') + '</dl></div>' : '';
+    var topics = r.interact.topics.length ? '<ul class="topics">' + r.interact.topics.map(function (t) {
+      var rep = t.bank && typeof RP === 'function' ? RP(t.bank, 1, 'guan') : t.reply;
+      return '<li><div class="tp-h"><b>' + esc(t.label) + '</b><span class="pill">' + t.n + ' / ' + t.total + ' 条</span></div>' + (t.sample.length ? '<p class="note">“' + t.sample.map(esc).join('”　“') + '”</p>' : '') + (rep ? '<p class="rep">' + esc(resolve(rep)).replace(/\n/g, '<br>') + '</p>' : '') + '</li>';
+    }).join('') + '</ul>' : '<p class="note">没贴评论。评论区是下一条选题的来源，下次记得复制几条点赞多的。</p>';
+    var sig = r.signal.rows.length ? '<table class="sb sig"><tbody>' + r.signal.rows.map(function (x) { return '<tr><td>' + esc(x.k) + '</td><td><b>' + esc(x.v) + '</b></td><td>' + esc(x.note) + '</td></tr>'; }).join('') + '</tbody></table>' : '';
+    return '<div class="box"><h3>2 · 它为什么火</h3><div class="formula">' + esc(r.formula) + '</div>' +
+      '<dl class="brief"><dt>钩子</dt><dd><b>' + esc(h0.label) + '</b>' + (h0.quote ? '：“' + esc(h0.quote) + '”' : '') + '<br><span class="note">' + esc(h0.why) + '</span></dd>' +
+      '<dt>情绪</dt><dd>' + (r.emos.length ? r.emos.map(function (e, i) { return (i ? '' : '<b>') + esc(e.label) + (i ? '' : '</b>'); }).join(' · ') : '没有明显的情绪词，可能靠画面或人设') + '</dd>' +
+      '<dt>结构</dt><dd><b>' + esc(r.struct.label) + '</b><span class="note">　' + esc(r.struct.tip) + '</span></dd>' +
+      (r.cover.notes.length ? '<dt>封面</dt><dd>' + r.cover.notes.map(esc).join('；') + '</dd>' : '') +
+      '<dt>互动</dt><dd>' + r.interact.notes.map(esc).join('；') + '</dd></dl></div>' + ai +
+      '<div class="box"><h3>评论区在聊什么<span class="note">可以直接改成置顶和回复</span></h3>' + topics + '</div>' +
+      '<div class="box"><h3>数据信号</h3>' + sig + r.signal.notes.map(function (n) { return '<p class="note">' + esc(n) + '</p>'; }).join('') + '</div>' +
+      '<div class="box"><h3>3 · 改成我们的</h3>' + r.risks.map(function (x) { return '<div class="chk ' + (/没发现/.test(x) ? 'ok' : 'warn') + '">' + esc(x) + '</div>'; }).join('') +
+      '<div class="gen-grid" style="margin-top:12px"><div class="gfield">选一个钩子（已按同款钩子改写，可以在生成后再改）<div class="hookpick">' + hooks.map(function (hk, i) { return '<label><input type="radio" name="bHook" value="' + i + '"' + (i === 0 ? ' checked' : '') + '><span>' + renderTpl(hk, b.input.p) + (i === hooks.length - 1 && m.skeleton ? '<em class="note">　原句骨架，把品类词换成我们的</em>' : '') + '</span></label>'; }).join('') + '</div></div>' +
+      '<div class="two"><label class="gfield">放到哪个主题' + sel('bTheme', themes, m.theme) + '</label><label class="gfield">哪个账号发' + sel('bAcct', P.accts, P.accts[0]) + '</label></div>' +
+      '<div class="two"><label class="gfield">形式' + sel('bForm', P.forms, m.form) + '</label><label class="gfield">挂什么活动' + sel('bOcc', GEN.occasions, m.occasion) + '</label></div></div>' +
+      '<div class="m-acts"><span class="note">推荐卖点：' + esc(m.points.join('、')) + '</span><button class="btn accent" type="button" data-act="brkgen">生成本店创意</button></div></div>' +
+      '<div class="box"><h3>A/B 测试建议</h3><p>' + esc(resolve(r.ab.test)) + '</p><p class="note">看哪个数定胜负：' + esc(r.ab.metric) + '</p></div>';
+  }
+  function renderBreak() {
+    var b = state.brk, keep = layer.querySelector('.d-body'), st = keep ? keep.scrollTop : 0;
+    state.open = null;
+    layer.innerHTML = '<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="bkTitle">' +
+      '<div class="d-head"><div><div class="pills" style="margin:0"><span class="pill mine">拆对标</span>' + (b.saved ? '<span class="pill">已存入拆解库</span>' : '') + '</div>' +
+      '<h2 id="bkTitle">' + (b.result ? esc(brkName(b)) : '拆一条对标爆款') + '</h2><p class="angle">把同行的爆款拆成“钩子 + 情绪 + 结构 + 互动”，看清它为什么火，再一键改写成本店能发的创意。</p></div>' +
+      '<div class="acts">' + (b.result ? '<button class="btn" type="button" data-act="brkcopy">复制拆解</button>' : '') + (b.result && !b.saved ? '<button class="btn" type="button" data-act="brksave">存入拆解库</button>' : '') + (b.saved ? '<button class="btn ghost" type="button" data-act="brkdel">删除</button>' : '') + '<button class="btn" type="button" data-act="brknew">再拆一条</button><button class="btn" type="button" data-close>关闭</button></div></div>' +
+      '<div class="d-body brk-body"><div class="col">' + brkForm() + brkLib() + '</div><div class="col">' + brkResult() + '</div></div></aside>';
+    var nb = layer.querySelector('.d-body'); if (nb) nb.scrollTop = st;
+  }
+  function saveBreakRec() {
+    var b = state.brk; if (!b.result) return null;
+    var rec = { id: b.id || 'bk' + Date.now().toString(36), at: Date.now(), input: JSON.parse(JSON.stringify(b.input)), result: b.result };
+    state.breaks = [rec].concat(state.breaks.filter(function (x) { return x.id !== rec.id; }));
+    b.id = rec.id; b.saved = true;
+    if (!save('tmb.breaks', state.breaks)) {
+      rec.input.shots = []; save('tmb.breaks', state.breaks);
+      toast('浏览器空间不够，截图没存下来，文字拆解已保存');
+    }
+    return rec;
+  }
+  function brkText(r, x) {
+    return ['【对标拆解 · ' + PLATS[x.p].name + '】' + (x.title || ''), x.url ? '链接：' + x.url : '', '爆点公式：' + r.formula,
+      '钩子：' + r.hooks[0].label + (r.hooks[0].quote ? '（“' + r.hooks[0].quote + '”）' : '') + '——' + r.hooks[0].why,
+      '情绪：' + (r.emos.map(function (e) { return e.label; }).join('、') || '无明显情绪词'), '结构：' + r.struct.label, '互动：' + r.interact.notes.join('；'),
+      r.interact.topics.length ? '评论区在聊：' + r.interact.topics.map(function (t) { return t.label + ' ' + t.n + ' 条'; }).join('、') : '',
+      r.signal.rows.length ? '数据：' + r.signal.rows.map(function (s) { return s.k + ' ' + s.v + '（' + s.note + '）'; }).join('；') : '',
+      '迁移提醒：' + r.risks.join('；'), '改写钩子：' + r.map.hooks.map(resolve).join(' / '), 'A/B：' + resolve(r.ab.test) + '；看' + r.ab.metric].filter(Boolean).join('\n');
+  }
+  function runBreakAI() {
+    readBreak();
+    var b = state.brk, st = document.getElementById('bStatus');
+    if (quota().left <= 0) { if (st) st.textContent = 'Claude 次数用完了，' + hhmm(quota().reset) + ' 恢复；本地拆解照常能用。'; return; }
+    if (!b.result) b.result = BRK.analyze(b.input, { scan: scanText });
+    var x = b.input, P = PLATS[x.p];
+    if (st) st.textContent = 'Claude 正在拆…（通常 10–40 秒）';
+    GEN.sample().then(function (sample) {
+      if (!sample) throw { code: 'unavailable' };
+      var prompt = ['你是做本地生活引流的内容策划，服务 Ulike脱毛吧（Ulike 家用脱毛仪品牌开的无人值守自助脱毛店：独立隔间、扫码开机、语音指引、按次付费，开在商场、园区、学校附近）。',
+        '下面是一条' + P.name + '上的对标内容，只根据这些文字判断，不要编造播放量或数据：',
+        '标题/首句：' + x.title, '封面：' + x.cover, '正文/口播：' + clip1(x.body, 2400), '热评：' + clip1(x.comments, 800),
+        '页面数据：' + BRK_DATA.map(function (d) { return d[1] + (x.data[d[0]] || '未填'); }).join('，'),
+        '规则拆解的初步结论：' + b.result.formula,
+        '请输出一个 JSON：{"why": "它为什么能火，2 句，说到具体手法", "audience": "谁会看、在什么场景刷到", "borrow": ["我们能借的 3 个具体做法"], "hooks": ["改写给脱毛吧的 3 个钩子/标题，≤22 字，像真人说话，不是广告腔"], "cover": ["封面大字 2 版，≤12 字，可用\\n换行"], "risks": ["迁移时不能照搬的地方"]}',
+        '要求：价格写 {新人价}、商场写 {商场}；不用 最/第一/永久/无痛/100%/保证效果 等词，体感只说具体感受；抖音小红书里不写美团/微信/私信；不冒充顾客。'].join('\n');
+      return sample.json(prompt, { cache: false });
+    }).then(function (j) {
+      if (!j || typeof j !== 'object') throw { code: 'invalid_json' };
+      useQuota();
+      var fx = RULES.fix, arr = function (a) { return Array.isArray(a) ? a.map(function (s) { return fx(String(s)); }).filter(Boolean) : []; };
+      b.result.ai = { why: fx(j.why || ''), audience: fx(j.audience || ''), borrow: arr(j.borrow), cover: arr(j.cover) };
+      var hs = arr(j.hooks);
+      if (hs.length) b.result.map.hooks = hs.concat(b.result.map.hooks.filter(function (h) { return hs.indexOf(h) < 0; })).slice(0, 5);
+      arr(j.risks).forEach(function (rk) { if (b.result.risks.indexOf(rk) < 0) b.result.risks.push(rk); });
+      b.result.risks = b.result.risks.filter(function (rk) { return !/没发现明显风险/.test(rk) || b.result.risks.length === 1; });
+      if (b.saved) saveBreakRec();
+      renderBreak(); toast('Claude 拆完了，还剩 ' + quota().left + ' 次');
+    }).catch(function (e) {
+      var code = e && e.code;
+      if (code === 'not_granted' || code === 'unavailable') state.ai = null;
+      var s2 = document.getElementById('bStatus'); if (s2) s2.textContent = code === 'rate_limited' ? 'Claude 额度暂时用满了，先看本地拆解。' : 'Claude 这次没拆成功，本地拆解结果照常可用。';
+      if (b.result) renderBreak();
+    });
+  }
+  /* 模板的钩子备选和 A/B：没有手写的，就从本主题爆款公式里挑两个不同类型的钩子 */
+  function bigrams(s) { s = String(s).replace(/\{[^}]*\}|[\s，。、！？：；|｜·“”]/g, ''); var g = {}; for (var i = 0; i < s.length - 1; i++) g[s.substr(i, 2)] = 1; return g; }
+  function similar(a, b) { var A = bigrams(a), B = bigrams(b), n = 0, t = 0; for (var k in A) { t++; if (B[k]) n++; } return t ? n / t : 0; }
+  function hashId(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+  function abOf(it) {
+    if (it.ab) return it.ab;
+    var metric = it.p === 'xhs' ? '封面点击率和收藏率' : it.p === 'pyq' ? '咨询数和本店渠道码核销' : '3 秒留存和完播率';
+    if (it.p === 'pyq') return { hooks: [], test: '同一周分别发文案 1 和文案 2（隔 2 天以上），配图不变，看哪条带来的咨询和本店码核销多，下次就用赢的那种说法。', metric: metric };
+    var P0 = pb(it.p, it.type), own = BRK.hookOf(String(it.title) + '\n' + String(it.cover.main || '').replace(/\n/g, ''));
+    /* 只用和这条内容场景对得上的钩子；带选填门店信息的不用（没填会缺字） */
+    var scene = GEN.sceneOf(it.title + JSON.stringify(it.brief || {}), true);
+    if (['午休', '下班路上', '逛街', '下课后', '健身前后'].indexOf(scene) < 0) scene = null; /* 钩子里的 {scene} 是时间 / 地点，社交、节日类场景套进去读不通 */
+    var cands = ((P0 && P0.gen && P0.gen.hooks) || []).concat((P0 && P0.gen && P0.gen.titles) || [])
+      .filter(function (h) { return (scene || h.indexOf('{scene}') < 0) && !/\{(位置|周边|区域|营业时间)\}|【N】/.test(h); })
+      .map(function (h) { return RULES.fix(h.replace(/\{scene\}/g, scene || '')); });
+    /* 活动要对得上：女神节的模板不推“冬季 20 次卡”的钩子 */
+    cands = cands.filter(function (c) { var o = GEN.periodOf(c); return o === '常规' || o === it.period; });
+    var start = hashId(it.id) % Math.max(1, cands.length), picked = [], types = [own];
+    for (var n = 0; n < cands.length && picked.length < 2; n++) {
+      var c = cands[(start + n) % cands.length], t = BRK.hookOf(c);
+      if (c === it.title || picked.indexOf(c) >= 0 || [it.title].concat(picked).some(function (x) { return similar(x, c) > 0.5; })) continue;
+      if (types.indexOf(t) < 0 || n >= cands.length - (2 - picked.length)) { picked.push(c); types.push(t); }
+    }
+    /* 本主题公式里不够两条：从拆对标的改写库里补不同类型的钩子 */
+    ['ask', 'contra', 'name', 'list', 'test'].forEach(function (k) {
+      if (picked.length >= 2 || types.indexOf(k) >= 0) return;
+      var c = (BRK.rewrite[k]._ || []).filter(function (x) { return [it.title].concat(picked).every(function (y) { return similar(y, x) <= 0.5; }); })[hashId(it.id) % 3];
+      if (c) { picked.push(c); types.push(k); }
+    });
+    var lab = function (h) { return BRK.hookLabel(BRK.hookOf(h)); };
+    var hooks = [it.title].concat(picked);
+    return { hooks: hooks, test: hooks.length > 1 ? '先用 A 发；同主题下一条换成 B（' + lab(hooks[1]) + '），封面和正文其余不变，发布时段相同，各看 48 小时。' : '', metric: metric, labels: hooks.map(lab) };
+  }
+
   /* ---------- 弹层：门店与价格 / 图库 / 备份 ---------- */
   function modal(inner) { state.open = null; layer.innerHTML = '<div class="scrim" data-close></div><div class="modal" role="dialog" aria-modal="true">' + inner + '</div>'; }
   function storeModal() {
@@ -473,10 +683,16 @@
       '<div class="m-acts">' + (n ? '<button class="btn ghost" type="button" data-act="clearphotos">清空本店照片</button>' : '') + '<button class="btn" type="button" data-close>关闭</button></div>');
   }
   function backupModal() {
-    var data = JSON.stringify({ edits: state.edits, custom: state.custom, stores: state.stores, prices: state.prices, cur: state.cur });
-    modal('<h2>备份 / 导入</h2><p class="sub">改过的文案、生成的创意、门店信息和价格都存在当前浏览器里。要给同事，复制下面的内容发过去；同事在这里粘贴后点“导入”。门店照片不包含在内。</p>' +
+    var data = JSON.stringify({ edits: state.edits, custom: state.custom, stores: state.stores, prices: state.prices, cur: state.cur, breaks: state.breaks.map(function (b) { var c = JSON.parse(JSON.stringify(b)); c.input.shots = []; return c; }) });
+    modal('<h2>备份 / 导入</h2><p class="sub">改过的文案、生成的创意、拆过的对标、门店信息和价格都存在当前浏览器里。要给同事，复制下面的内容发过去；同事在这里粘贴后点“导入”。门店照片和对标截图不包含在内。</p>' +
       '<textarea class="ed" id="bk" rows="10" style="font-family:var(--f-mono);font-size:12px">' + esc(data) + '</textarea>' +
       '<div class="m-acts"><button class="btn" type="button" data-act="copybk">复制备份</button><button class="btn primary" type="button" data-act="import">导入粘贴的内容</button><button class="btn" type="button" data-close>关闭</button></div>');
+  }
+  function logModal() {
+    var V = window.TMB_VERSION || { v: '', log: [] };
+    modal('<h2>更新日志 · v' + esc(V.v) + '</h2><p class="sub">' + esc(V.date || '') + ' 更新。旧版本存的改动、生成的创意和门店信息都还在。</p>' +
+      V.log.map(function (g) { return '<h3>' + esc(g.title) + '</h3><ul class="pblist">' + g.items.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'; }).join('') +
+      '<div class="m-acts"><button class="btn" type="button" data-close>知道了</button></div>');
   }
   function lightbox(name) {
     var d = document.createElement('div'); d.className = 'lightbox';
@@ -504,7 +720,7 @@
 
   /* ---------- 事件 ---------- */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-frame],[data-pb],[data-pbcopy],[data-tab],[data-f],[data-open],[data-new],[data-close],[data-act],[data-ref],[data-jump],[data-pg],[data-copytheme],[data-g],#copyTab,#btnStore,#btnPhotos,#btnBackup');
+    var t = e.target.closest('[data-frame],[data-pb],[data-pbcopy],[data-tab],[data-f],[data-open],[data-new],[data-close],[data-act],[data-ref],[data-jump],[data-pg],[data-copytheme],[data-g],[data-bp],[data-brk],[data-gbrk],[data-openbrk],#copyTab,#btnStore,#btnPhotos,#btnBackup,#btnBreak,#btnLog');
     if (!t) return;
     if (t.dataset.tab) { state.tab = t.dataset.tab; state.acct = null; state.period = null; save('tmb.tab', state.tab); renderMain(); window.scrollTo(0, 0); return; }
     if (t.dataset.f) { state[t.dataset.f] = t.dataset.v === '全部' ? null : t.dataset.v; renderFilters(); renderThemes(); return; }
@@ -530,8 +746,54 @@
     if (t.id === 'btnStore') { storeModal(); return; }
     if (t.id === 'btnPhotos') { photoModal(); return; }
     if (t.id === 'btnBackup') { backupModal(); return; }
+    if (t.id === 'btnBreak' || t.dataset.openbrk) { var keepP = t.dataset.openbrk ? state.tab : null; openBreak(); if (keepP) { state.brk.input.p = keepP; renderBreak(); } return; }
+    if (t.id === 'btnLog') { logModal(); return; }
+    if (t.dataset.bp) { readBreak(); if (state.brk.input.p !== t.dataset.bp) { state.brk.input.p = t.dataset.bp; state.brk.result = null; state.brk.saved = false; state.brk.id = null; } renderBreak(); return; }
+    if (t.dataset.brk) { openBreak(t.dataset.brk); return; }
+    if (t.dataset.gbrk) {
+      readGen(); var gr = brkOf(t.dataset.gbrk); if (!gr) return;
+      var gin = BRK.toInput(gr, { theme: gen.theme, acct: gen.acct }), GP = PLATS[gen.p];
+      gen.idea = gin.idea; gen.points = gin.points; gen.occasion = gin.occasion;
+      if (GP.forms.indexOf(gin.form) >= 0) gen.form = gin.form;
+      genModal(gen.p, gen.themeIdx, gen); toast('已用《' + brkName(gr) + '》的钩子和结构填好，可以再改'); return;
+    }
 
     var act = t.dataset.act, it = state.open;
+    if (act === 'brkrun') {
+      readBreak(); var bx = state.brk.input, st0 = document.getElementById('bStatus');
+      if ((bx.title + bx.cover + bx.body).replace(/\s/g, '').length < 8) { if (st0) st0.textContent = '至少粘贴标题或正文（8 个字以上）'; return; }
+      var keepAi = state.brk.result && state.brk.result.ai;
+      state.brk.result = BRK.analyze(bx, { scan: scanText });
+      if (keepAi) state.brk.result.ai = keepAi;
+      saveBreakRec(); T('break', null, '拆对标 · ' + brkName(state.brk));
+      renderBreak(); var nb2 = layer.querySelector('.brk-body'); if (nb2 && window.innerWidth < 860) { var rc = nb2.querySelectorAll('.col')[1]; if (rc) rc.scrollIntoView({ behavior: 'smooth' }); }
+      toast('拆完了，已存入拆解库'); return;
+    }
+    if (act === 'brkai') { runBreakAI(); return; }
+    if (act === 'brknew') { readBreak(); var lp = state.brk.input.p; state.brk = { id: null, input: brkBlank(lp), result: null, saved: false }; renderBreak(); var bt = document.getElementById('bTitle'); if (bt) bt.focus(); return; }
+    if (act === 'brkcopy') { readBreak(); copy(brkText(state.brk.result, state.brk.input), '已复制拆解'); return; }
+    if (act === 'brkshotdel') { readBreak(); state.brk.input.shots.splice(+t.dataset.i, 1); if (state.brk.saved) saveBreakRec(); renderBreak(); return; }
+    if (act === 'brkdel') {
+      if (t.dataset.confirm !== '1') { t.dataset.confirm = '1'; t.textContent = '再点一次确认删除'; return; }
+      state.breaks = state.breaks.filter(function (x) { return x.id !== state.brk.id; }); save('tmb.breaks', state.breaks);
+      openBreak(); toast('已从拆解库删除'); return;
+    }
+    if (act === 'brkgen') {
+      readBreak(); var rec = saveBreakRec(); if (!rec) return;
+      var hk = layer.querySelector('input[name="bHook"]:checked'), hooks = rec.result.map.hooks.concat(rec.result.map.skeleton ? [rec.result.map.skeleton] : []);
+      var g = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+      var hook = hooks[hk ? +hk.value : 0] || hooks[0];
+      var bin = BRK.toInput(rec, { theme: g('bTheme'), acct: g('bAcct'), form: g('bForm'), hook: hook }); bin.occasion = g('bOcc') || bin.occasion;
+      var bi = GEN.smart(bin, 0, pool());
+      bi.fromBreak = rec.id;
+      bi.angle = '对标拆解：' + rec.result.formula + '。' + bi.angle;
+      var alts = [bi.title].concat(rec.result.map.hooks.filter(function (h) { return h !== hook && h !== bi.title; })).slice(0, 3);
+      bi.ab = { hooks: alts, test: rec.result.ab.test, metric: rec.result.ab.metric };
+      T('breakGen', bi);
+      if (state.tab !== bin.p) { state.tab = bin.p; save('tmb.tab', state.tab); renderMain(); }
+      saveCustom(bi, bin); return;
+    }
+    if (act === 'abcopy') { copy(resolve(t.dataset.h), '已复制钩子'); return; }
     if (act === 'genlocal') { readGen(); var inp = JSON.parse(JSON.stringify(gen)); var ns = Math.floor(Math.random() * 3); var gi = GEN.smart(inp, ns, pool()); gi.seed = ns; T('quickGen', gi); saveCustom(gi, inp); return; }
     if (act === 'genai') { runAI(); return; }
     var fe = t.closest('.field'), k = fe && fe.dataset.k;
@@ -586,6 +848,7 @@
       try {
         var d = JSON.parse(document.getElementById('bk').value);
         if (d.edits) state.edits = d.edits; if (Array.isArray(d.custom)) state.custom = d.custom;
+        if (Array.isArray(d.breaks)) { var have = {}; state.breaks.forEach(function (b) { have[b.id] = 1; }); state.breaks = state.breaks.concat(d.breaks.filter(function (b) { return b && b.id && b.result && !have[b.id]; })); save('tmb.breaks', state.breaks); }
         if (d.stores && d.stores.length) state.stores = d.stores; if (d.prices) state.prices = Object.assign(defaults(VARS.price), d.prices);
         state.cur = d.cur && state.stores.some(function (s) { return s.id === d.cur; }) ? d.cur : state.stores[0].id;
         state.stores.forEach(function (s) { state.photos[s.id] = state.photos[s.id] || load('tmb.photos.' + s.id, {}); });
@@ -608,6 +871,11 @@
       return;
     }
     if (t.id === 'storeSel') { state.cur = t.value; save('tmb.cur', state.cur); renderAll(); toast('已切换到 ' + (store().vars['简称'] || '')); return; }
+    if (t.id === 'bShot' && t.files && t.files[0]) {
+      readBreak();
+      compress(t.files[0], function (url) { state.brk.input.shots = (state.brk.input.shots || []).concat([url]).slice(0, 3); if (state.brk.saved) saveBreakRec(); renderBreak(); });
+      return;
+    }
     if (t.dataset.slot && t.files && t.files[0]) {
       var slot = t.dataset.slot;
       compress(t.files[0], function (url) {
@@ -628,6 +896,13 @@
   window.addEventListener('hashchange', function () { var id = location.hash.slice(1); if (id && byId(id) && id !== (state.open && state.open.id)) { var it = byId(id); if (it.p !== state.tab) { state.tab = it.p; renderMain(); } openItem(id); } });
 
   renderStoreSel(); renderMain();
+  (function () {
+    var V = window.TMB_VERSION; if (!V) return;
+    var el = document.getElementById('ver'); if (el) el.textContent = 'v' + V.v;
+    var seen = load('tmb.ver', ''), used = load('tmb.tab', null);
+    if (seen !== V.v && (seen || used)) setTimeout(function () { toast('素材台已更新到 v' + V.v + '，点左上角版本号看更新了什么'); }, 600);
+    save('tmb.ver', V.v);
+  })();
   var h = location.hash.slice(1), hi = h && byId(h);
   if (hi) { if (hi.p !== state.tab) { state.tab = hi.p; renderMain(); } openItem(h); }
 })();

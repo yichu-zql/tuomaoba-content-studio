@@ -67,20 +67,28 @@
     '女神节': { period: '女神节', line: '女神节专享 6 次全身卡，价格看店铺页', short: '女神节专享', dead: '活动 3/1–3/10', when: '3/1–3/10', refs: [] }
   };
 
+  /* 问答合集用：像店员本人在答，说具体细节，不用统一标准答案 */
   var QA = [
-    ['疼不疼？', '放心～多数人反馈就是温温的、轻轻一下的感觉，档位可以自己调，第一次从低档开始就好。'],
-    ['要做几次？', '跟着 28 天打卡计划来就好，4 周 8 次，小程序会提醒你，轻松坚持～'],
-    ['两次隔多久？', '两次隔 2 天以上就好，小程序里有专属建议，跟着来很省心～'],
-    ['要准备什么？', '来之前把毛发刮干净就行，带上手机，其他店里都备好了～'],
-    ['卫生吗？', '放心～独立隔间，备有消毒用品，用前还能自己再擦一遍，安心又自在。'],
-    ['和家用仪有什么不一样？', '店里用的也是 Ulike 设备，按次付、顺路就能做，先试一次很划算～']
+    ['疼不疼？', '说实话看部位。手臂基本就是热一下，腋下敏感的会有点刺，档位自己调，第一次先开低档。'],
+    ['要做几次？', '一次是试感觉的。想看变化就跟着小程序的 28 天打卡来，4 周 8 次，每个人情况不一样。'],
+    ['两次隔多久？', '至少隔 2 天。小程序会提醒你哪天该来，不用自己记。'],
+    ['要准备什么？', '来之前把毛刮干净（这步别偷懒），带上手机就行，其他店里都有。'],
+    ['卫生吗？', '一人一间，台面上有消毒湿巾。我自己去也是先擦一遍再用，一两分钟的事。'],
+    ['和家用仪有什么不一样？', '店里用的就是 Ulike 的设备。区别是不用自己买、不怕吃灰，顺路做一次付一次。']
   ];
-
   function cta(p, acct, spoken) {
     if (p === 'sph') return '点下方链接，看离你最近的门店👇';
     if (p === 'pyq') return acct === '老客' ? '想去的私我，我发你邀请卡～' : '想试的点卡片，或者找我拿本店优惠码～';
     if (acct === '门店号') return spoken ? '{商场}{位置}，搜 Ulike脱毛吧 就能找到' : '📍{商场}{位置}｜搜「Ulike脱毛吧 {商场}」';
     return spoken ? '搜 Ulike脱毛吧，看离你最近的店' : '搜「Ulike脱毛吧＋商圈名」看离你最近的店～';
+  }
+
+  /* 评论区回复：按卖点挑问题，从回复库轮换说法；门店号用店主口吻 */
+  function replies(acct, seed, pts) {
+    var who = acct === '门店号' ? 'dian' : 'guan', keys = ['where', 'pain', 'price'];
+    if (pts && pts.indexOf('看得见的干净') >= 0) keys[1] = 'clean';
+    if (pts && pts.indexOf('没人推销') >= 0) keys[2] = 'sell';
+    return keys.map(function (k, j) { return RP(k, seed + j, who); }).join('\n\n');
   }
 
   function slotsFor(form, pts, theme) {
@@ -203,14 +211,14 @@
       item.f.tags = '#自助脱毛 #脱毛 #Ulike脱毛吧 #{城市}探店 #' + scene.name.replace(/\s/g, '');
       if (acct === '门店号') item.f.pin = '📍{商场}{位置}｜营业时间 {营业时间}｜搜「Ulike脱毛吧 {商场}」';
       else { item.f.pinA = '某团搜「Ulike脱毛吧」，' + occ.short + dead + '👇'; item.f.pinB = PIN_B; }
-      item.f.replies = REPLY_WHERE + '\n\n' + REPLY_PAIN + '\n\n' + REPLY_PRICE;
+      item.f.replies = replies(acct, seed, pts);
     } else if (input.p === 'xhs') {
       item.f.title = form === '晒单模板' ? '可选标题（三选一）：\n' + hook + '\n{商场}的自助脱毛店\n' + pick(['一个人的脱毛隔间', '打卡记录', '没人推销的脱毛店'], seed) : clip(hook, 20);
       item.f.body = xhsBody(form, c, input.theme, acct);
       item.f.tags = '#自助脱毛 #脱毛 #Ulike脱毛吧 #{城市}探店 #{区域}' + (occ.activity === '打卡' ? ' #28天光滑打卡' : '');
       if (acct === '门店号') item.f.pin = '📍{商场}{位置}｜营业时间 {营业时间}｜搜「Ulike脱毛吧 {商场}」';
       else if (acct === '官号') { item.f.pinA = '某团搜「Ulike脱毛吧」，' + occ.short + dead; item.f.pinB = PIN_B; }
-      item.f.replies = form === '晒单模板' ? '晒单页提示：带门店地点和 #Ulike自助脱毛吧，发布后回到小程序晒单页提交。' : REPLY_WHERE + '\n\n' + REPLY_PAIN + '\n\n' + REPLY_PRICE;
+      item.f.replies = form === '晒单模板' ? '晒单页提示：带门店地点和 #Ulike自助脱毛吧，发布后回到小程序晒单页提交。' : replies(acct, seed, pts);
     } else if (input.p === 'sph') {
       if (acct === '公众号' || form === '公众号文章') {
         item.acct = '公众号'; item.form = '公众号文章';
@@ -249,15 +257,15 @@
     [/双\s?11|11\.11|双十一|购机|买机|保价/, '11.11 购机'],
     [/20 ?次|冬季卡|次卡/, '冬季 20 次卡'],
     [/打卡|28 ?天|毕业|周礼包|晒单/, '冬日打卡季 · 28 天打卡'],
-    [/邀请|邀友|拉人|带朋友|好友到店/, '邀好友到店'],
+    [/邀请|邀友|拉人|带朋友|好友到店|朋友第一次到店|面部券/, '邀好友到店'],
     [/集赞|点赞|转发抽奖/, '视频号集赞'],
     [/双\s?12|跨年|双人卡/, '双12 / 跨年 · 双人卡'],
     [/年货|过年|春节/, '年货节'],
     [/情人节|520|七夕/, '情人节'],
     [/女神节|妇女节|三八/, '女神节']
   ];
-  var FIX = [[/最好的?/g, '很适合的'], [/最便宜/g, '更划算'], [/最怕/g, '怕'], [/最常见/g, '常见'], [/最(?![近多后少低至])/g, '很'], [/第一(?![次个周张单天步篇轮视])/g, '头一'], [/无痛|不痛|零痛感/g, '多数人觉得能接受'], [/100%/g, '人人'], [/绝对/g, '真的'], [/首选/g, '可以先选'], [/顶级|极致/g, '好用的'], [/全网最低/g, '划算'], [/永久/g, '长期'], [/保证效果/g, '看个人情况']];
-  function fixText(s) { s = String(s == null ? '' : s); FIX.forEach(function (f) { s = s.replace(f[0], f[1]); }); return s; }
+  /* 合规改写用 compliance.js 的同一份词表 */
+  function fixText(s) { return window.TMB_RULES.fix(s); }
   function fixItem(it) {
     it.title = fixText(it.title);
     it.cover.main = fixText(it.cover.main); it.cover.sub = fixText(it.cover.sub);
@@ -338,12 +346,12 @@
     it.cover.style = ['red', 'navy', 'cream', 'mint', 'blue'][(['red', 'navy', 'cream', 'mint', 'blue'].indexOf(top.cover.style) + 1 + seed) % 5];
     it.brief.who = input.who || it.brief.who;
     it.brief.hook = hook;
-    if (needPoint) it.brief.msg = pointLine + '；' + it.brief.msg;
     var needOcc = input.occasion !== '常规' && JSON.stringify(top.f).indexOf(occ.short.split(' ')[0]) < 0;
     var occTxt = occ.line + (occ.dead ? '，' + occ.dead : '');
     /* 模板已经讲到这个卖点，就不再重复插入 */
     var topTxt = JSON.stringify(top.f) + top.title;
     var needPoint = input.points.length && !(POINT_KW[input.points[0]] && kwHit(input.points[0], topTxt)) && topTxt.indexOf(pointLine.slice(0, 6)) < 0;
+    if (needPoint) it.brief.msg = pointLine + '；' + it.brief.msg;
     var f = it.f, p = input.p;
 
     if (f.script) {
@@ -421,7 +429,7 @@
         '使用者的想法：' + (input.idea || '（未填写）'),
         '主打卖点：' + (input.points.join('、') || '自定'),
         '档期/活动：' + input.occasion + '（' + (OCC[input.occasion] || OCC['常规']).line + '）',
-        '规则：1) 价格、店名、位置等用变量，原样写花括号：{新人价}{全身新人价}{八次卡}{八次单次}{冬季20次}{冬季20次腿}{双人卡}{购机立减}{打卡季截止}{购机截止}{店名}{简称}{城市}{区域}{商场}{位置}{营业时间}{周边}{门店数}。2) 禁用：永久、根治、治疗、疗效、医用、无痛、不痛、100%、绝对、顶级、首选、全网最低、保证效果，以及“最”（“最近”除外）、“第一”（“第一次”除外）。体感只写“多数人反馈就是温温的、轻轻一下的感觉”。3) 抖音和小红书的正文、标题、话题、分镜里不能出现：美团、微信、私信、二维码、链接（只有置顶评论A可写“某团”）；结尾引导“搜 Ulike脱毛吧＋商圈名”。4) 不贬低其他品牌，不拍身体特写，用户体验类用【写你自己的真实感受】留空。5) 写得像行业里会做内容的人：钩子具体、有场景、口语。',
+        '规则：1) 价格、店名、位置等用变量，原样写花括号：{新人价}{全身新人价}{八次卡}{八次单次}{冬季20次}{冬季20次腿}{双人卡}{购机立减}{打卡季截止}{购机截止}{店名}{简称}{城市}{区域}{商场}{位置}{营业时间}{周边}{门店数}。2) 禁用：永久、根治、治疗、疗效、医用、无痛、不痛、100%、绝对、顶级、首选、全网最低、保证效果，以及“最”（“最近”除外）、“第一”（“第一次”除外）。体感说具体部位和真实感受（如“手臂基本就是热一下，腋下会有点刺”），不要统一的标准答案。3) 抖音和小红书的正文、标题、话题、分镜里不能出现：美团、微信、私信、二维码、链接（只有置顶评论A可写“某团”）；结尾引导“搜 Ulike脱毛吧＋商圈名”。4) 不贬低其他品牌，不拍身体特写，用户体验类用【写你自己的真实感受】留空。5) 要有活人感：像店员或店主本人在说话，口语、短句、具体细节，敢说小缺点；不要客服腔和官话（不要“放心～”“多数人反馈”“亲”“哦～”这类套话），评论区回复也一样；不冒充顾客写好评。6) 钩子具体、有场景，让人想停下来看、想评论、想转给朋友。',
         '团队已经积累的同类创意（学它们的结构、语气和细节，但不要照抄标题和钩子）：\n' + refs.map(function (e, i) { return '【参考' + (i + 1) + '】' + e.title + '（' + e.acct + ' · ' + e.form + '）\n' + (i === 0 ? JSON.stringify(e.f).slice(0, 3200) : e.angle); }).join('\n\n'),
         '只输出一个 JSON 对象，格式：{"title": "创意标题≤26字", "angle": "一句话创意说明", "cover": {"main": "封面大字≤12字，可用\\n换行", "sub": "封面小字≤16字"}, "brief": {"who": "给谁看", "hook": "钩子", "msg": "要说清楚的点", "must": "必须带", "shoot": "怎么拍", "kpi": "看什么数"}, ' + fieldSpec(input.p, input.acct) + ', "slots": ["S1".."S10" 里选 2-6 个门店图位：S1门头 S2导视 S3路线 S4店门口 S5隔间 S6设备上手 S7扫码开机 S8清洁 S9立牌 S10周边地标]}'
       ].join('\n\n');
@@ -449,5 +457,17 @@
     });
   }
 
-  window.TMB_GEN = { local: generateLocal, smart: generateSmart, ai: generateAI, sample: getSample, occasions: Object.keys(OCC), points: Object.keys(POINTS) };
+  function occOf(t) { for (var i = 0; i < OCC_KW.length; i++) if (OCC_KW[i][0].test(t)) return OCC_KW[i][1]; return '常规'; }
+  /* 一句话属于哪个档期（看活动词和价格变量），用来避免把别的活动的钩子推给这条 */
+  function periodOf(t) {
+    t = String(t || '');
+    if (/\{全身新人价\}/.test(t)) return '年货节';
+    if (/\{冬季20次|\{打卡季截止\}/.test(t)) return '冬日打卡季';
+    if (/\{双人卡\}/.test(t)) return '双12 / 跨年';
+    if (/\{购机立减\}|\{购机截止\}/.test(t)) return '11.11 购机';
+    return OCC[occOf(t)].period;
+  }
+  function sceneOf(t, strict) { for (var i = 0; i < SCENES.length; i++) if (SCENES[i].re.test(t)) return SCENES[i].name; return strict ? null : DEFAULT_SCENE.name; }
+
+  window.TMB_GEN = { local: generateLocal, smart: generateSmart, ai: generateAI, sample: getSample, occasions: Object.keys(OCC), points: Object.keys(POINTS), occOf: occOf, sceneOf: sceneOf, fix: fixText, periodOf: periodOf };
 })();
