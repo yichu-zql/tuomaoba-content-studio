@@ -235,6 +235,151 @@
     return item;
   }
 
+  /* ---------- 快速生成：从积累的创意里找最接近的几条，按你的想法改写 ---------- */
+  var POINT_KW = {
+    '价格反差': /价格|便宜|划算|奶茶|省钱|性价比|一次不到|拆账|美容院|几百/g,
+    '没人推销': /推销|尴尬|尬聊|社恐|无人|没人|一个人/g,
+    '顺路就做': /顺路|午休|下班|逛街|路过|楼下|通勤|预约/g,
+    '看得见的干净': /干净|卫生|消毒|清洁/g,
+    '先试再买': /脱毛仪|买机|购机|吃灰|先试|试一次/g
+  };
+  function kwCount(k, t) { var m = String(t).match(POINT_KW[k]); return m ? m.length : 0; }
+  function kwHit(k, t) { return kwCount(k, t) > 0; }
+  var OCC_KW = [
+    [/双\s?11|11\.11|双十一|购机|买机|保价/, '11.11 购机'],
+    [/20 ?次|冬季卡|次卡/, '冬季 20 次卡'],
+    [/打卡|28 ?天|毕业|周礼包|晒单/, '冬日打卡季 · 28 天打卡'],
+    [/邀请|邀友|拉人|带朋友|好友到店/, '邀好友到店'],
+    [/集赞|点赞|转发抽奖/, '视频号集赞'],
+    [/双\s?12|跨年|双人卡/, '双12 / 跨年 · 双人卡'],
+    [/年货|过年|春节/, '年货节'],
+    [/情人节|520|七夕/, '情人节'],
+    [/女神节|妇女节|三八/, '女神节']
+  ];
+  var FIX = [[/最好的?/g, '很适合的'], [/最便宜/g, '更划算'], [/最怕/g, '怕'], [/最常见/g, '常见'], [/最(?![近多后少低至])/g, '很'], [/第一(?![次个周张单天步篇轮视])/g, '头一'], [/无痛|不痛|零痛感/g, '多数人觉得能接受'], [/100%/g, '人人'], [/绝对/g, '真的'], [/首选/g, '可以先选'], [/顶级|极致/g, '好用的'], [/全网最低/g, '划算'], [/永久/g, '长期'], [/保证效果/g, '看个人情况']];
+  function fixText(s) { s = String(s == null ? '' : s); FIX.forEach(function (f) { s = s.replace(f[0], f[1]); }); return s; }
+  function fixItem(it) {
+    it.title = fixText(it.title);
+    it.cover.main = fixText(it.cover.main); it.cover.sub = fixText(it.cover.sub);
+    Object.keys(it.f).forEach(function (k) { var v = it.f[k]; it.f[k] = Array.isArray(v) ? v.map(function (r) { return r.map(fixText); }) : fixText(v); });
+    return it;
+  }
+  function grams(s) { s = String(s || '').replace(/\{[^}]*\}|[\s，。、！？“”「」：；（）,.!?:;()#\-—|·]/g, ''); var g = {}; for (var i = 0; i < s.length - 1; i++) g[s.substr(i, 2)] = 1; return g; }
+  function overlap(a, b) { var n = 0; for (var k in a) if (b[k]) n++; return n; }
+  function docText(t) { return [t.title, t.angle, t.form, t.cover.main, t.cover.sub, t.brief.hook, t.brief.msg, t.f.post || t.f.body || t.f.v1 || ''].join(' '); }
+
+  /* 按想法找参考：同主题优先，再看账号、形式、档期、卖点和文字相似度 */
+  function rank(input, pool) {
+    var ig = grams(input.idea), occ = OCC[input.occasion] || OCC['常规'];
+    var same = pool.filter(function (t) { return t.p === input.p && t.type === input.theme; });
+    if (same.length < 2) same = pool.filter(function (t) { return t.p === input.p; });
+    return same.map(function (t) {
+      var s = overlap(ig, grams(docText(t))) * 1.5;
+      if (t.acct === input.acct) s += 4;
+      if (t.form === input.form) s += 5;
+      /* 档期要对得上：选了活动就优先同档期；没选就少用节日专属的模板 */
+      if (input.occasion !== '常规') { if (t.period === occ.period || (occ.activity && t.activity === occ.activity)) s += 8; else if (t.period !== '常规') s -= 6; }
+      else if (['年货节', '情人节', '女神节', '双12 / 跨年', '11.11 购机'].indexOf(t.period) >= 0) s -= 4;
+      (input.points || []).forEach(function (k) { if (POINT_KW[k] && kwHit(k, docText(t))) s += 2; });
+      if (t.edited) s += 1.5;
+      /* 自己生成、还没改过的创意参考权重低一些；内容太短的不拿来做骨架 */
+      if (t.custom && !t.edited) s -= 3;
+      if ((t.f.script && t.f.script.length < 3) || String(t.f.post || t.f.body || t.f.v1 || '').length < 20) s -= 12;
+      return { t: t, s: s };
+    }).sort(function (a, b) { return b.s - a.s; });
+  }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function quoted(idea) { var m = String(idea || '').match(/[“"「『]([^”"」』]{2,24})[”"」』]/); return m ? m[1].trim() : ''; }
+
+  function generateSmart(input, seed, pool) {
+    seed = seed || 0;
+    input = clone(input);
+    var idea = String(input.idea || '').trim();
+    /* 想法里提到的卖点和活动，没选也自动带上 */
+    if (!input.points || !input.points.length) input.points = Object.keys(POINT_KW).filter(function (k) { return kwHit(k, idea); }).slice(0, 3);
+    if (!input.occasion || input.occasion === '常规') for (var i = 0; i < OCC_KW.length; i++) if (OCC_KW[i][0].test(idea)) { input.occasion = OCC_KW[i][1]; break; }
+    var ranked = rank(input, pool || []);
+    var rule = generateLocal(input, seed);
+    if (!ranked.length) return fixItem(rule);
+    var top = ranked[seed % Math.min(3, ranked.length)].t;
+    var refs = ranked.slice(0, 3).map(function (r) { return r.t; });
+    var it = clone(top), occ = OCC[input.occasion] || OCC['常规'];
+    var q = quoted(idea);
+    var hook = q || (idea && idea.length <= 16 && !/[，,。；]/.test(idea) ? idea : '');
+    if (!hook) {
+      /* 没有现成钩子：按参考模板讲的卖点来起标题，标题和正文说的是一件事 */
+      var tTxt = JSON.stringify(top.f) + top.title + top.angle;
+      var kp = input.points.filter(function (k) { return kwHit(k, tTxt); })[0] || Object.keys(POINT_KW).sort(function (x, y) { return kwCount(y, tTxt) - kwCount(x, tTxt); }).filter(function (k) { return kwHit(k, tTxt); })[0];
+      var sc = DEFAULT_SCENE; for (var si = 0; si < SCENES.length; si++) if (SCENES[si].re.test(idea)) { sc = SCENES[si]; break; }
+      hook = kp && ['活动介绍', '门店体验'].indexOf(input.theme) >= 0 ? pick(POINTS[kp].hooks, seed).replace(/\{scene\}/g, sc.name) : rule.title;
+    }
+    var occ0 = OCC[input.occasion] || OCC['常规'];
+    var pointLine = input.occasion !== '常规' && input.points[0] === '价格反差' ? occ0.line : rule.brief.msg.split('；')[0];
+
+    it.id = rule.id; it.custom = true; it.edited = false; delete it.ai; delete it.input; delete it.seed;
+    it.acct = input.acct || it.acct; it.form = input.form || it.form; it.type = input.theme;
+    it.act = rule.act; it.freq = '按需';
+    if (input.occasion !== '常规') { it.period = occ.period; it.activity = occ.activity; it.when = occ.when; }
+    it.title = clip(hook, 26);
+    it.angle = (idea ? '你的想法：' + clip(idea, 70) : '按“' + (input.points.join('、') || input.theme) + '”生成') + '。主要参考《' + top.title + '》的结构和说法。';
+    it.basedOn = [top.id].concat(refs.filter(function (r) { return r.id !== top.id; }).map(function (r) { return r.id; })).slice(0, 3);
+    it.cover.main = q && q.length <= 12 ? q.replace(/[，,]/, '\n') : (input.occasion !== '常规' || seed % 2 ? rule.cover.main : it.cover.main);
+    it.cover.sub = input.occasion !== '常规' && it.period !== top.period ? rule.cover.sub : it.cover.sub;
+    it.cover.style = ['red', 'navy', 'cream', 'mint', 'blue'][(['red', 'navy', 'cream', 'mint', 'blue'].indexOf(top.cover.style) + 1 + seed) % 5];
+    it.brief.who = input.who || it.brief.who;
+    it.brief.hook = hook;
+    if (needPoint) it.brief.msg = pointLine + '；' + it.brief.msg;
+    var needOcc = input.occasion !== '常规' && JSON.stringify(top.f).indexOf(occ.short.split(' ')[0]) < 0;
+    var occTxt = occ.line + (occ.dead ? '，' + occ.dead : '');
+    /* 模板已经讲到这个卖点，就不再重复插入 */
+    var topTxt = JSON.stringify(top.f) + top.title;
+    var needPoint = input.points.length && !(POINT_KW[input.points[0]] && kwHit(input.points[0], topTxt)) && topTxt.indexOf(pointLine.slice(0, 6)) < 0;
+    var f = it.f, p = input.p;
+
+    if (f.script) {
+      if (top.form !== it.form) f.script = rule.f.script;
+      else {
+        f.script[0][2] = '字幕：' + hook;
+        if (needPoint && f.script.length > 2) f.script[1][2] = '口播：' + pointLine;
+        if (needOcc && f.script.length > 3) f.script[f.script.length - 2][2] = '字幕：' + occ.short;
+      }
+    }
+    if (f.post) {
+      var pl = f.post.split('\n'); pl[0] = hook;
+      if (needPoint) pl.splice(1, 0, pointLine + '。');
+      if (needOcc) pl.splice(pl.length - 1, 0, occTxt + '。');
+      f.post = pl.join('\n');
+    }
+    if (p === 'xhs' && f.body) {
+      if (!/^可选标题/.test(f.title || '')) f.title = clip(hook, 20);
+      else f.title = '可选标题（三选一）：\n' + clip(hook, 20) + '\n' + f.title.split('\n').slice(1, 3).join('\n');
+      var paras = f.body.split('\n\n');
+      if (!/【/.test(paras[0])) paras[0] = hook + '👇';
+      if (needPoint) paras.splice(1, 0, '💡 ' + pointLine + '。');
+      if (needOcc) paras.splice(paras.length - 1, 0, '🎁 ' + occTxt + '。');
+      f.body = paras.join('\n\n');
+    }
+    if (p === 'sph' && it.acct === '公众号' && f.body) {
+      f.title = clip(hook, 22) + (f.title && f.title.indexOf('｜') > 0 ? '｜' + f.title.split('｜').slice(1).join('｜') : '');
+      if (needOcc) f.body = f.body.replace(/(【[^】]*活动[^】]*】\n?)/, '$1' + occTxt + '。\n');
+    }
+    if (p === 'pyq') {
+      var first = String(f.v1 || '').split(/[。！!]/)[0];
+      f.v3 = f.v2 || f.v3; f.v2 = f.v1;
+      f.v1 = hook + '。' + (needOcc || !f.v2 ? occ.short + (occ.dead ? '，' + occ.dead : '') + '，' : '') + (input.acct === '老客' ? '想去的私我～' : '想试的点卡片，或找我拿本店优惠码～');
+      if (!first) f.v2 = rule.f.v2;
+    }
+    if (p === 'douyin' || p === 'xhs') {
+      if (it.acct === '门店号') { delete f.pinA; delete f.pinB; f.pin = f.pin || rule.f.pin || '📍{商场}{位置}｜搜「Ulike脱毛吧 {商场}」'; }
+      else if (it.acct === '官号') { delete f.pin; f.pinA = rule.f.pinA || f.pinA; f.pinB = f.pinB || PIN_B; }
+    }
+    var slots = (it.slots || []).concat(rule.slots || []);
+    it.slots = slots.filter(function (x, j) { return slots.indexOf(x) === j; }).slice(0, it.p === 'pyq' && /九宫格/.test(it.form) ? 9 : 6);
+    var rf = (it.refs || []).concat(occ.refs || []);
+    it.refs = rf.filter(function (x, j) { return rf.indexOf(x) === j; }).slice(0, 5);
+    return fixItem(it);
+  }
+
   /* Claude 生成（仅在 claude.ai 打开时可用） */
   var samplePromise = null;
   function getSample() {
@@ -249,9 +394,10 @@
     if (p === 'sph') return acct === '公众号' ? '"f": {"title": "文章标题", "summary": "摘要", "body": "正文结构，用【】标段落", "mount": "文章内插入的小程序卡片"}' : '"f": {"post": "视频描述，结尾引导点下方链接", "script": [["0–3s","画面","口播/字幕"], …], "mount": "小程序卡片：…", "article": "公众号文章：《…》", "tags": "#话题"}';
     return '"f": {"v1": "朋友圈文案1（1-3句，像本人说话）", "v2": "文案2", "v3": "文案3", "pics": "配图说明", "timing": "发布时间建议"}';
   }
-  function generateAI(input, examples, onText) {
+  function generateAI(input, pool, onText) {
     return getSample().then(function (sample) {
       if (!sample) throw { code: 'unavailable' };
+      var refs = rank(input, pool || []).slice(0, 3).map(function (r) { return r.t; });
       var P = window.TMB_PLATFORMS[input.p];
       var prompt = [
         '你是 Ulike脱毛吧 的内容策划。Ulike脱毛吧是 Ulike（家用脱毛仪品牌）开在商场、园区、学校附近的无人值守自助脱毛店：独立隔间，用 Ulike 小程序扫码开机，设备有语音指引，合作商运营；用户在美团买新人体验后到店核销。',
@@ -260,11 +406,11 @@
         '主打卖点：' + (input.points.join('、') || '自定'),
         '档期/活动：' + input.occasion + '（' + (OCC[input.occasion] || OCC['常规']).line + '）',
         '规则：1) 价格、店名、位置等用变量，原样写花括号：{新人价}{全身新人价}{八次卡}{八次单次}{冬季20次}{冬季20次腿}{双人卡}{购机立减}{打卡季截止}{购机截止}{店名}{简称}{城市}{区域}{商场}{位置}{营业时间}{周边}{门店数}。2) 禁用：永久、根治、治疗、疗效、医用、无痛、不痛、100%、绝对、顶级、首选、全网最低、保证效果，以及“最”（“最近”除外）、“第一”（“第一次”除外）。体感只写“多数人反馈是温热或轻微刺感”。3) 抖音和小红书的正文、标题、话题、分镜里不能出现：美团、微信、私信、二维码、链接（只有置顶评论A可写“某团”）；结尾引导“搜 Ulike脱毛吧＋商圈名”。4) 不贬低其他品牌，不拍身体特写，用户体验类用【写你自己的真实感受】留空。5) 写得像行业里会做内容的人：钩子具体、有场景、口语。',
-        '参考同主题已有的创意（风格参考，不要重复）：\n' + examples.slice(0, 2).map(function (e) { return '- ' + e.title + '：' + e.angle; }).join('\n'),
+        '团队已经积累的同类创意（学它们的结构、语气和细节，但不要照抄标题和钩子）：\n' + refs.map(function (e, i) { return '【参考' + (i + 1) + '】' + e.title + '（' + e.acct + ' · ' + e.form + '）\n' + (i === 0 ? JSON.stringify(e.f).slice(0, 3200) : e.angle); }).join('\n\n'),
         '只输出一个 JSON 对象，格式：{"title": "创意标题≤26字", "angle": "一句话创意说明", "cover": {"main": "封面大字≤12字，可用\\n换行", "sub": "封面小字≤16字"}, "brief": {"who": "给谁看", "hook": "钩子", "msg": "要说清楚的点", "must": "必须带", "shoot": "怎么拍", "kpi": "看什么数"}, ' + fieldSpec(input.p, input.acct) + ', "slots": ["S1".."S10" 里选 2-6 个门店图位：S1门头 S2导视 S3路线 S4店门口 S5隔间 S6设备上手 S7扫码开机 S8清洁 S9立牌 S10周边地标]}'
       ].join('\n\n');
       return sample.json(prompt, { onText: onText, cache: false }).then(function (j) {
-        var base = generateLocal(input, 0);
+        var base = generateSmart(input, 0, pool);
         if (!j || typeof j !== 'object') throw { code: 'invalid_json' };
         base.title = clip(j.title || base.title, 26);
         base.angle = (input.idea ? '你的想法：' + clip(input.idea, 60) + '。' : '') + (j.angle || '');
@@ -281,10 +427,11 @@
         }
         if (Array.isArray(j.slots)) { var ok = j.slots.filter(function (s) { return window.TMB_SLOTS[s]; }); if (ok.length) base.slots = ok; }
         base.ai = true;
-        return base;
+        base.basedOn = refs.map(function (r) { return r.id; });
+        return fixItem(base);
       });
     });
   }
 
-  window.TMB_GEN = { local: generateLocal, ai: generateAI, sample: getSample, occasions: Object.keys(OCC), points: Object.keys(POINTS) };
+  window.TMB_GEN = { local: generateLocal, smart: generateSmart, ai: generateAI, sample: getSample, occasions: Object.keys(OCC), points: Object.keys(POINTS) };
 })();

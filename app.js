@@ -77,6 +77,31 @@
   function edited(it, k) { var e = state.edits[it.id]; return !!(e && (k ? e[k] !== undefined : Object.keys(e).length)); }
   function setVal(it, k, v) { state.edits[it.id] = state.edits[it.id] || {}; state.edits[it.id][k] = v; save('tmb.edits', state.edits); }
   function resetVal(it, k) { if (state.edits[it.id]) { delete state.edits[it.id][k]; if (!Object.keys(state.edits[it.id]).length) delete state.edits[it.id]; } save('tmb.edits', state.edits); }
+  /* 生成用的“经验库”：全部模板 + 团队改过的版本 + 自己保存的创意 */
+  function pool(excludeId) {
+    return items().filter(function (it) { return it.id !== excludeId; }).map(function (it) {
+      var c = JSON.parse(JSON.stringify(it)), e = state.edits[it.id];
+      if (e) { Object.keys(e).forEach(function (k) { if (k === 'coverMain') c.cover.main = e[k]; else if (k === 'coverSub') c.cover.sub = e[k]; else c.f[k] = e[k]; }); c.edited = true; }
+      return c;
+    });
+  }
+  /* Claude 生成次数：每人每 5 小时 10 次，从第一次使用开始计时 */
+  var AI_LIMIT = 10, AI_WINDOW = 5 * 3600 * 1000;
+  function quota() {
+    var q = load('tmb.aiq', null), now = Date.now();
+    if (!q || now >= q.start + AI_WINDOW) return { left: AI_LIMIT, reset: null };
+    return { left: Math.max(0, AI_LIMIT - q.used), reset: q.start + AI_WINDOW };
+  }
+  function useQuota() {
+    var q = load('tmb.aiq', null), now = Date.now();
+    if (!q || now >= q.start + AI_WINDOW) q = { start: now, used: 0 };
+    q.used++; save('tmb.aiq', q);
+  }
+  function hhmm(t) {
+    var d = new Date(t), n = new Date(), pad = function (x) { return (x < 10 ? '0' : '') + x; };
+    var day = d.toDateString() === n.toDateString() ? '' : (new Date(n.getTime() + 864e5).toDateString() === d.toDateString() ? '明天 ' : (d.getMonth() + 1) + '/' + d.getDate() + ' ');
+    return day + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
   function fieldsOf(it) { return FIELDS[it.p].filter(function (f) { return it.f[f[0]] !== undefined; }); }
   function itemText(it) {
     var parts = [resolve(val(it, 'coverMain')), resolve(val(it, 'coverSub')), resolve(it.title)];
@@ -238,6 +263,10 @@
     var p = photo(s);
     return '<label class="slot"><div class="img ' + (p ? '' : 'ph') + '"' + (p ? ' style="background-image:url(' + p + ')"' : '') + '>' + (p ? '<span class="tag">本店</span>' : '') + '<span class="up">' + (p ? '替换' : '上传') + '</span></div><div class="lb">' + SLOTS[s].name + '</div><div class="gd">' + SLOTS[s].guide + '</div><input type="file" accept="image/*" hidden data-slot="' + s + '"></label>';
   }
+  function refLinks(it) {
+    var r = (it.basedOn || []).map(byId).filter(Boolean);
+    return r.length ? '<div class="pills"><span class="note">参考：</span>' + r.map(function (x) { return '<button class="chip" type="button" data-open="' + esc(x.id) + '">' + esc(resolve(x.title)) + '</button>'; }).join('') + '</div>' : '';
+  }
   function renderDrawer() {
     var it = state.open; if (!it) return;
     var keep = layer.querySelector('.d-body'), st = keep ? keep.scrollTop : 0;
@@ -254,8 +283,8 @@
       (it.custom ? '<button class="btn" type="button" data-act="regen">换一版</button><button class="btn ghost" type="button" data-act="delcustom">删除</button>' : '') +
       (edited(it) ? '<button class="btn" type="button" data-act="resetall">全部恢复默认</button>' : '') + '<button class="btn" type="button" data-close>关闭</button>';
     layer.innerHTML = '<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dTitle">' +
-      '<div class="d-head"><div><div class="pills" style="margin:0"><span class="pill"><i class="dot ' + it.p + '"></i>' + PLATS[it.p].name + ' · ' + esc(it.acct) + '</span><span class="pill">' + esc(it.type) + '</span><span class="pill">' + esc(it.form || '') + '</span><span class="pill ' + a[0] + '">' + a[1] + '</span><span class="pill">' + esc(resolve(it.when)) + ' · ' + esc(it.freq) + '</span>' + (it.custom ? '<span class="pill mine">' + (it.ai ? 'Claude 生成' : '规则生成') + '</span>' : '') + '</div>' +
-      '<h2 id="dTitle">' + esc(resolve(it.title)) + '</h2><p class="angle">' + esc(resolve(it.angle)) + '</p></div><div class="acts">' + acts + '</div></div>' +
+      '<div class="d-head"><div><div class="pills" style="margin:0"><span class="pill"><i class="dot ' + it.p + '"></i>' + PLATS[it.p].name + ' · ' + esc(it.acct) + '</span><span class="pill">' + esc(it.type) + '</span><span class="pill">' + esc(it.form || '') + '</span><span class="pill ' + a[0] + '">' + a[1] + '</span><span class="pill">' + esc(resolve(it.when)) + ' · ' + esc(it.freq) + '</span>' + (it.custom ? '<span class="pill mine">' + (it.ai ? 'Claude 生成' : '快速生成') + '</span>' : '') + '</div>' +
+      '<h2 id="dTitle">' + esc(resolve(it.title)) + '</h2><p class="angle">' + esc(resolve(it.angle)) + '</p>' + refLinks(it) + '</div><div class="acts">' + acts + '</div></div>' +
       '<div class="d-body"><div class="col">' +
       '<div class="box"><h3>画面预览<span class="note">上传门店图后自动换成本店照片</span></h3><div class="cover-wrap' + (video ? ' video' : '') + '">' + coverHTML(it, 'big') + '</div></div>' +
       (it.p === 'pyq' ? '' : '<div class="box"><h3>封面文字</h3>' + coverFields.map(function (f) { return fieldHTML(it, f); }).join('') + '</div>') +
@@ -311,7 +340,13 @@
   }
   function renderGenButtons() {
     var el = document.getElementById('gActs'); if (!el) return;
-    el.innerHTML = (state.ai ? '<span class="note">Claude 生成会用你自己的 Claude 额度</span><button class="btn" type="button" data-act="genlocal">快速生成</button><button class="btn accent" type="button" data-act="genai">用 Claude 生成</button>' : '<span class="note">按内容矩阵和卖点库生成，可继续修改</span><button class="btn accent" type="button" data-act="genlocal">生成创意</button>') + '<button class="btn" type="button" data-close>取消</button>';
+    var q = quota(), ai = '';
+    if (state.ai) {
+      var note = q.reset ? '剩 ' + q.left + ' 次，' + hhmm(q.reset) + ' 恢复为 ' + AI_LIMIT + ' 次' : '每人每 5 小时 ' + AI_LIMIT + ' 次，从第一次使用开始计时';
+      ai = '<span class="note">Claude 生成用你自己的 Claude 额度。' + note + '</span><button class="btn" type="button" data-act="genlocal">快速生成</button>' +
+        (q.left > 0 ? '<button class="btn accent" type="button" data-act="genai">用 Claude 生成 · 剩 ' + q.left + ' 次</button>' : '<button class="btn accent" type="button" disabled>Claude 次数已用完 · ' + hhmm(q.reset) + ' 恢复</button>');
+    } else ai = '<span class="note">从团队积累的 ' + items().length + ' 条创意里找最接近的，按你的想法改写</span><button class="btn accent" type="button" data-act="genlocal">生成创意</button>';
+    el.innerHTML = ai + '<button class="btn" type="button" data-close>取消</button>';
   }
   function readGen() {
     gen.idea = (document.getElementById('gIdea') || {}).value || '';
@@ -329,13 +364,13 @@
   var aiCtl = null;
   function runAI() {
     readGen();
+    if (quota().left <= 0) { renderGenButtons(); return; }
     var input = JSON.parse(JSON.stringify(gen));
     var status = document.getElementById('gStatus');
     var btns = document.querySelectorAll('#gActs .btn'); btns.forEach(function (b) { b.disabled = true; });
     status.textContent = 'Claude 正在写…（通常 10–60 秒）';
-    var examples = BASE.filter(function (i) { return i.p === input.p && i.type === input.theme; });
-    GEN.ai(input, examples, function (u) { status.textContent = 'Claude 正在写… 已写 ' + u.text.length + ' 字'; })
-      .then(function (item) { saveCustom(item, input); })
+    GEN.ai(input, pool(), function (u) { status.textContent = 'Claude 正在写… 已写 ' + u.text.length + ' 字'; })
+      .then(function (item) { useQuota(); saveCustom(item, input); var q = quota(); toast('已生成。Claude 还剩 ' + q.left + ' 次，' + hhmm(q.reset) + ' 恢复'); })
       .catch(function (e) {
         var code = e && e.code;
         if (code === 'not_granted' || code === 'sampling_disabled' || code === 'unavailable') state.ai = null;
@@ -419,7 +454,7 @@
     if (t.id === 'btnBackup') { backupModal(); return; }
 
     var act = t.dataset.act, it = state.open;
-    if (act === 'genlocal') { readGen(); var inp = JSON.parse(JSON.stringify(gen)); saveCustom(GEN.local(inp, Math.floor(Math.random() * 5)), inp); return; }
+    if (act === 'genlocal') { readGen(); var inp = JSON.parse(JSON.stringify(gen)); var ns = Math.floor(Math.random() * 3); var gi = GEN.smart(inp, ns, pool()); gi.seed = ns; saveCustom(gi, inp); return; }
     if (act === 'genai') { runAI(); return; }
     var fe = t.closest('.field'), k = fe && fe.dataset.k;
     var fdef = it && k ? fieldsOf(it).concat([['coverMain', '', 'long'], ['coverSub', '', 'text']]).filter(function (f) { return f[0] === k; })[0] : null;
@@ -427,7 +462,7 @@
     if (act === 'resetall') { delete state.edits[it.id]; save('tmb.edits', state.edits); state.editing = {}; renderDrawer(); toast('已恢复默认'); return; }
     if (act === 'regen') {
       var input = it.input || { p: it.p, theme: it.type, acct: it.acct, form: it.form, idea: '', points: [], occasion: '常规' };
-      var seed = (it.seed || 0) + 1, nx = GEN.local(input, seed);
+      var seed = (it.seed || 0) + 1, nx = GEN.smart(input, seed, pool(it.id));
       nx.id = it.id; nx.seed = seed; nx.input = input;
       state.custom = state.custom.map(function (c) { return c.id === it.id ? nx : c; });
       delete state.edits[it.id]; save('tmb.edits', state.edits); save('tmb.custom', state.custom);
