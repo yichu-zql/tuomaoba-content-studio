@@ -632,8 +632,8 @@
     });
   }
   /* 模板的钩子备选和 A/B：没有手写的，就从本主题爆款公式里挑两个不同类型的钩子 */
-  function bigrams(s) { s = String(s).replace(/\{[^}]*\}|[\s，。、！？：；|｜·“”]/g, ''); var g = {}; for (var i = 0; i < s.length - 1; i++) g[s.substr(i, 2)] = 1; return g; }
-  function similar(a, b) { var A = bigrams(a), B = bigrams(b), n = 0, t = 0; for (var k in A) { t++; if (B[k]) n++; } return t ? n / t : 0; }
+  function bigrams(s) { s = String(s).replace(/\{[^}]*\}/g, '#').replace(/[\s，。、！？：；|｜·“”]/g, ''); var g = {}; for (var i = 0; i < s.length - 1; i++) g[s.substr(i, 2)] = 1; return g; }
+  function similar(a, b) { var A = bigrams(a), B = bigrams(b), n = 0, ta = 0, tb = 0; for (var k in A) { ta++; if (B[k]) n++; } for (k in B) tb++; return ta && tb ? n / Math.min(ta, tb) : 0; }
   function hashId(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
   function abOf(it) {
     if (it.ab) return it.ab;
@@ -651,13 +651,16 @@
     var start = hashId(it.id) % Math.max(1, cands.length), picked = [], types = [own];
     for (var n = 0; n < cands.length && picked.length < 2; n++) {
       var c = cands[(start + n) % cands.length], t = BRK.hookOf(c);
-      if (c === it.title || picked.indexOf(c) >= 0 || [it.title].concat(picked).some(function (x) { return similar(x, c) > 0.5; })) continue;
+      if (c === it.title || picked.indexOf(c) >= 0 || [it.title].concat(picked).some(function (x) { return similar(x, c) >= 0.4; })) continue;
       if (types.indexOf(t) < 0 || n >= cands.length - (2 - picked.length)) { picked.push(c); types.push(t); }
     }
     /* 本主题公式里不够两条：从拆对标的改写库里补不同类型的钩子 */
+    /* 补的钩子也要和这条讲的事对得上：讲购机的补“想先试”，讲价格的补“怕贵” */
+    var itx = it.title + JSON.stringify(it.brief || {});
+    var emo = /脱毛仪|购机|吃灰/.test(itx) ? 'gadget' : /疼|刺/.test(itx) ? 'pain' : /推销|社恐|尴尬|一个人/.test(itx) ? 'shy' : /干净|消毒|打扫/.test(itx) ? 'clean' : /闺蜜|好友|朋友/.test(itx) ? 'social' : /\{(新人价|八次卡|冬季20次|双人卡)\}|元/.test(itx) ? 'price' : '_';
     ['ask', 'contra', 'name', 'list', 'test'].forEach(function (k) {
       if (picked.length >= 2 || types.indexOf(k) >= 0) return;
-      var c = (BRK.rewrite[k]._ || []).filter(function (x) { return [it.title].concat(picked).every(function (y) { return similar(y, x) <= 0.5; }); })[hashId(it.id) % 3];
+      var c = ((BRK.rewrite[k][emo] || []).concat(BRK.rewrite[k]._ || [])).filter(function (x) { return [it.title].concat(picked).every(function (y) { return similar(y, x) < 0.4; }); })[hashId(it.id) % 3];
       if (c) { picked.push(c); types.push(k); }
     });
     var lab = function (h) { return BRK.hookLabel(BRK.hookOf(h)); };
