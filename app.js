@@ -12,8 +12,22 @@
     pyq: [['v1', '文案 1', 'long'], ['v2', '文案 2', 'long'], ['v3', '文案 3', 'long'], ['pics', '配图', 'long'], ['timing', '发布时间', 'text']]
   };
   var SCRIPT_COLS = ['时长', '画面', '口播 / 字幕'];
+  /* 登录与使用记录（auth.js，只在 claude.ai 里启用；其余情况 AUTH.active 为 false，一切照旧） */
+  var AUTH = window.TMB_AUTH || null;
+  function T(type, it, title) { if (AUTH && AUTH.active) try { AUTH.track(type, it ? it.id : '', title || (it ? resolve(it.title) : '')); } catch (e) {} }
 
   /* ---------- 存储（每个浏览器各存一份） ---------- */
+  /* 门店：内置 78 家美团门店 + 自己新增的；改过的门店信息按 id 覆盖内置值 */
+  function mergeStores(saved) {
+    var base = (window.TMB_STORES || []).map(function (s) { return { id: s.id, vars: Object.assign({}, s.vars) }; });
+    if (!base.length) base = [{ id: 's1', vars: defaults(VARS.store) }];
+    (saved || []).forEach(function (sv) {
+      var hit = base.filter(function (b) { return b.id === sv.id; })[0];
+      if (hit) { Object.keys(sv.vars || {}).forEach(function (k) { if (sv.vars[k]) hit.vars[k] = sv.vars[k]; }); }
+      else if (sv.id !== 's1') base.push(sv); /* 旧版的示例门店不再保留 */
+    });
+    return base;
+  }
   function load(k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
   function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
   function defaults(list) { var o = {}; list.forEach(function (x) { o[x.k] = x.def; }); return o; }
@@ -22,7 +36,7 @@
     tab: load('tmb.tab', 'douyin'), acct: null, period: null, q: '',
     edits: load('tmb.edits', {}),
     custom: load('tmb.custom', []),
-    stores: load('tmb.stores', null) || [{ id: 's1', vars: defaults(VARS.store) }],
+    stores: mergeStores(load('tmb.stores', null)),
     cur: load('tmb.cur', 's1'),
     prices: Object.assign(defaults(VARS.price), load('tmb.prices', {})),
     photos: {}, open: null, editing: {}, ai: null
@@ -35,7 +49,7 @@
   function items() { return state.custom.concat(BASE); }
   function byId(id) { return items().filter(function (i) { return i.id === id; })[0]; }
   function store() { return state.stores.filter(function (s) { return s.id === state.cur; })[0]; }
-  function allVars() { return Object.assign({}, state.prices, store().vars); }
+  function allVars() { var v = Object.assign({}, state.prices, store().vars); if (!v['门店数']) v['门店数'] = String(state.stores.length); return v; }
   var LABELS = {}; VARS.store.concat(VARS.price).forEach(function (x) { LABELS[x.k] = x.label; });
 
   /* ---------- 文本与合规 ---------- */
@@ -88,11 +102,13 @@
   /* Claude 生成次数：每人每 5 小时 10 次，从第一次使用开始计时 */
   var AI_LIMIT = 10, AI_WINDOW = 5 * 3600 * 1000;
   function quota() {
+    if (AUTH && AUTH.active) return AUTH.quota();
     var q = load('tmb.aiq', null), now = Date.now();
     if (!q || now >= q.start + AI_WINDOW) return { left: AI_LIMIT, reset: null };
     return { left: Math.max(0, AI_LIMIT - q.used), reset: q.start + AI_WINDOW };
   }
   function useQuota() {
+    if (AUTH && AUTH.active) return AUTH.useQuota();
     var q = load('tmb.aiq', null), now = Date.now();
     if (!q || now >= q.start + AI_WINDOW) q = { start: now, used: 0 };
     q.used++; save('tmb.aiq', q);
@@ -222,8 +238,15 @@
     sec.querySelector('[data-pg="-1"]').disabled = tr.scrollLeft <= 4;
     sec.querySelector('[data-pg="1"]').disabled = tr.scrollLeft + w >= tr.scrollWidth - 4;
   }
+  function cities() {
+    var c = {};
+    state.stores.forEach(function (s) { var k = s.vars['城市'] || '未填城市'; c[k] = (c[k] || 0) + 1; });
+    return Object.keys(c).sort(function (a, b) { return c[b] - c[a] || a.localeCompare(b, 'zh'); }).map(function (k) { return [k, c[k]]; });
+  }
   function renderStoreSel() {
-    document.getElementById('storeSel').innerHTML = state.stores.map(function (s) { return '<option value="' + s.id + '"' + (s.id === state.cur ? ' selected' : '') + '>' + esc(s.vars['简称'] || s.vars['店名'] || '未命名门店') + '</option>'; }).join('');
+    var city = store().vars['城市'] || '未填城市';
+    document.getElementById('citySel').innerHTML = cities().map(function (c) { return '<option value="' + esc(c[0]) + '"' + (c[0] === city ? ' selected' : '') + '>' + esc(c[0]) + '（' + c[1] + '）</option>'; }).join('');
+    document.getElementById('storeSel').innerHTML = state.stores.filter(function (s) { return (s.vars['城市'] || '未填城市') === city; }).map(function (s) { return '<option value="' + s.id + '"' + (s.id === state.cur ? ' selected' : '') + '>' + esc(s.vars['简称'] || s.vars['店名'] || '未命名门店') + '</option>'; }).join('');
   }
   function renderMain() { renderTabs(); renderHead(); renderFilters(); renderThemes(); }
   function renderAll() { renderMain(); renderStoreSel(); if (state.open) renderDrawer(); }
@@ -233,6 +256,7 @@
   function openItem(id) {
     state.open = byId(id) || null; state.editing = {};
     if (!state.open) return closeLayer();
+    T('view', state.open);
     try { history.replaceState(null, '', '#' + id); } catch (e) {}
     renderDrawer();
   }
@@ -370,7 +394,7 @@
     var btns = document.querySelectorAll('#gActs .btn'); btns.forEach(function (b) { b.disabled = true; });
     status.textContent = 'Claude 正在写…（通常 10–60 秒）';
     GEN.ai(input, pool(), function (u) { status.textContent = 'Claude 正在写… 已写 ' + u.text.length + ' 字'; })
-      .then(function (item) { useQuota(); saveCustom(item, input); var q = quota(); toast('已生成。Claude 还剩 ' + q.left + ' 次，' + hhmm(q.reset) + ' 恢复'); })
+      .then(function (item) { useQuota(); T('aiGen', item); saveCustom(item, input); var q = quota(); toast('已生成。Claude 还剩 ' + q.left + ' 次，' + hhmm(q.reset) + ' 恢复'); })
       .catch(function (e) {
         var code = e && e.code;
         if (code === 'not_granted' || code === 'sampling_disabled' || code === 'unavailable') state.ai = null;
@@ -435,7 +459,7 @@
     if (t.dataset.f) { state[t.dataset.f] = t.dataset.v === '全部' ? null : t.dataset.v; renderFilters(); renderThemes(); return; }
     if (t.dataset.jump) { var sec = document.getElementById('theme-' + t.dataset.jump); if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (t.dataset.pg) { var tr = t.closest('.theme').querySelector('.track'); tr.scrollBy({ left: (+t.dataset.pg) * (tr.clientWidth + 1), behavior: 'smooth' }); return; }
-    if (t.dataset.copytheme) { var th = PLATS[state.tab].themes[+t.dataset.copytheme].name, l = themeItems(state.tab, th); copy(l.map(plainAll).join('\n\n==========\n\n'), '已复制「' + th + '」' + l.length + ' 条'); return; }
+    if (t.dataset.copytheme) { var th = PLATS[state.tab].themes[+t.dataset.copytheme].name, l = themeItems(state.tab, th); T('copy', null, PLATS[state.tab].name + ' · 复制主题「' + th + '」'); copy(l.map(plainAll).join('\n\n==========\n\n'), '已复制「' + th + '」' + l.length + ' 条'); return; }
     if (t.dataset.open) { openItem(t.dataset.open); return; }
     if (t.dataset.new) { genModal(state.tab, +t.dataset.new); return; }
     if (t.hasAttribute('data-close')) { closeLayer(); return; }
@@ -448,17 +472,17 @@
       t.parentNode.querySelectorAll('.chip').forEach(function (c) { c.setAttribute('aria-pressed', t.dataset.multi ? String(gen[key].indexOf(c.dataset.gv) >= 0) : String(c.dataset.gv === gen[key])); });
       return;
     }
-    if (t.id === 'copyTab') { var all = items().filter(function (i) { return i.p === state.tab; }); copy(all.map(plainAll).join('\n\n==========\n\n'), '已复制 ' + all.length + ' 条'); return; }
+    if (t.id === 'copyTab') { var all = items().filter(function (i) { return i.p === state.tab; }); T('copy', null, PLATS[state.tab].name + ' · 复制本平台全部'); copy(all.map(plainAll).join('\n\n==========\n\n'), '已复制 ' + all.length + ' 条'); return; }
     if (t.id === 'btnStore') { storeModal(); return; }
     if (t.id === 'btnPhotos') { photoModal(); return; }
     if (t.id === 'btnBackup') { backupModal(); return; }
 
     var act = t.dataset.act, it = state.open;
-    if (act === 'genlocal') { readGen(); var inp = JSON.parse(JSON.stringify(gen)); var ns = Math.floor(Math.random() * 3); var gi = GEN.smart(inp, ns, pool()); gi.seed = ns; saveCustom(gi, inp); return; }
+    if (act === 'genlocal') { readGen(); var inp = JSON.parse(JSON.stringify(gen)); var ns = Math.floor(Math.random() * 3); var gi = GEN.smart(inp, ns, pool()); gi.seed = ns; T('quickGen', gi); saveCustom(gi, inp); return; }
     if (act === 'genai') { runAI(); return; }
     var fe = t.closest('.field'), k = fe && fe.dataset.k;
     var fdef = it && k ? fieldsOf(it).concat([['coverMain', '', 'long'], ['coverSub', '', 'text']]).filter(function (f) { return f[0] === k; })[0] : null;
-    if (act === 'copyall') { copy(plainAll(it), '已复制全部文案'); return; }
+    if (act === 'copyall') { T('copy', it); copy(plainAll(it), '已复制全部文案'); return; }
     if (act === 'resetall') { delete state.edits[it.id]; save('tmb.edits', state.edits); state.editing = {}; renderDrawer(); toast('已恢复默认'); return; }
     if (act === 'regen') {
       var input = it.input || { p: it.p, theme: it.type, acct: it.acct, form: it.form, idea: '', points: [], occasion: '常规' };
@@ -466,14 +490,14 @@
       nx.id = it.id; nx.seed = seed; nx.input = input;
       state.custom = state.custom.map(function (c) { return c.id === it.id ? nx : c; });
       delete state.edits[it.id]; save('tmb.edits', state.edits); save('tmb.custom', state.custom);
-      state.open = nx; state.editing = {}; renderDrawer(); toast('已换一版'); return;
+      state.open = nx; state.editing = {}; renderDrawer(); T('quickGen', nx); toast('已换一版'); return;
     }
     if (act === 'delcustom') {
       if (t.dataset.confirm !== '1') { t.dataset.confirm = '1'; t.textContent = '再点一次确认删除'; return; }
       state.custom = state.custom.filter(function (c) { return c.id !== it.id; }); save('tmb.custom', state.custom);
       delete state.edits[it.id]; save('tmb.edits', state.edits); closeLayer(); toast('已删除'); return;
     }
-    if (act === 'copy') { var v2 = val(it, k); copy(fdef[2] === 'table' ? v2.map(function (r) { return r.map(resolve).join('｜'); }).join('\n') : resolve(v2)); return; }
+    if (act === 'copy') { T('copy', it); var v2 = val(it, k); copy(fdef[2] === 'table' ? v2.map(function (r) { return r.map(resolve).join('｜'); }).join('\n') : resolve(v2)); return; }
     if (act === 'edit') { state.editing[k] = true; renderDrawer(); var ta = layer.querySelector('[data-k="' + k + '"] textarea'); if (ta) ta.focus(); return; }
     if (act === 'cancel') { delete state.editing[k]; renderDrawer(); return; }
     if (act === 'reset') { resetVal(it, k); delete state.editing[k]; renderDrawer(); toast('已恢复默认'); return; }
@@ -485,11 +509,11 @@
         if (act === 'delrow') { rows.splice(+t.dataset.r, 1); setVal(it, k, rows); renderDrawer(); return; }
         setVal(it, k, rows);
       } else setVal(it, k, fe.querySelector('textarea').value);
-      delete state.editing[k]; renderDrawer(); toast('已保存'); return;
+      delete state.editing[k]; renderDrawer(); T('edit', it); toast('已保存'); return;
     }
     if (act === 'addstore') {
       var id = 's' + Date.now().toString(36), nv = defaults(VARS.store); Object.keys(nv).forEach(function (x) { nv[x] = ''; });
-      nv['简称'] = '新门店 ' + (state.stores.length + 1);
+      nv['简称'] = '新门店 ' + (state.stores.length + 1); nv['城市'] = store().vars['城市'] || '';
       state.stores.push({ id: id, vars: nv }); state.cur = id; state.photos[id] = {};
       save('tmb.stores', state.stores); save('tmb.cur', state.cur); renderStoreSel(); storeModal(); renderThemes(); return;
     }
@@ -519,11 +543,16 @@
   document.addEventListener('input', function (e) {
     var t = e.target;
     if (t.id === 'q') { state.q = t.value; renderThemes(); return; }
-    if (t.dataset.sv) { store().vars[t.dataset.sv] = t.value.trim(); t.classList.toggle('miss', !t.value.trim()); save('tmb.stores', state.stores); renderStoreSel(); renderThemes(); return; }
+    if (t.dataset.sv) { store().vars[t.dataset.sv] = t.value.trim(); t.classList.toggle('miss', !t.value.trim()); save('tmb.stores', state.stores); if (t.dataset.sv === '城市' || t.dataset.sv === '简称') renderStoreSel(); renderThemes(); return; }
     if (t.dataset.pv) { state.prices[t.dataset.pv] = t.value.trim(); save('tmb.prices', state.prices); renderThemes(); }
   });
   document.addEventListener('change', function (e) {
     var t = e.target;
+    if (t.id === 'citySel') {
+      var first = state.stores.filter(function (s) { return (s.vars['城市'] || '未填城市') === t.value; })[0];
+      if (first) { state.cur = first.id; save('tmb.cur', state.cur); renderAll(); renderStoreSel(); toast('已切换到 ' + t.value + ' · ' + (first.vars['简称'] || '')); }
+      return;
+    }
     if (t.id === 'storeSel') { state.cur = t.value; save('tmb.cur', state.cur); renderAll(); toast('已切换到 ' + (store().vars['简称'] || '')); return; }
     if (t.dataset.slot && t.files && t.files[0]) {
       var slot = t.dataset.slot;

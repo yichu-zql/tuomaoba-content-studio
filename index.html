@@ -65,6 +65,8 @@ button { cursor: pointer; }
 .store-pick { display: flex; align-items: center; gap: 6px; background: var(--surface-2); border-radius: 999px; padding: 3px 6px 3px 12px; min-width: 0; height: 34px; }
 .store-pick label { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .store-pick select { border: 0; background: transparent; font-weight: 700; max-width: 200px; padding: 2px 4px; }
+.store-pick #citySel { max-width: 110px; }
+.store-pick .sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
 .btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; height: 34px; padding: 0 14px; font-size: 13px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .btn:hover { border-color: var(--ink); }
 .btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
@@ -278,6 +280,8 @@ footer { color: var(--muted); font-size: 12px; padding-block: 28px 40px; border-
   .top { position: static; }
   .brand small { display: none; }
   .store-pick select { max-width: 140px; }
+  .store-pick #citySel { max-width: 92px; }
+  .store-pick label { display: none; }
   .d-head { grid-template-columns: minmax(0, 1fr); }
   .d-head .acts { justify-content: flex-start; }
   .th-head { grid-template-columns: minmax(0, 1fr); }
@@ -286,13 +290,75 @@ footer { color: var(--muted); font-size: 12px; padding-block: 28px 40px; border-
   .card .meta { padding: 8px 10px 10px; }
   .card .ttl { font-size: 13px; }
 }
+/* 登录与后台（只在 claude.ai 里启用，见 auth.js） */
+.tmb-locked .top, .tmb-locked main, .tmb-locked #layer { visibility: hidden; }
+.gate { position: fixed; inset: 0; z-index: 90; background: var(--bg); display: grid; place-items: center; padding: max(24px, env(safe-area-inset-top, 0px)) 16px 24px; overflow-y: auto; }
+.gate-card { width: min(400px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 26px 24px 22px; }
+.gate-brand { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
+.gate-brand .mark { width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 900; font-size: 16px; flex: none; }
+.gate-brand b { display: block; font-weight: 800; font-size: 16px; line-height: 1.3; }
+.gate-brand small { display: block; color: var(--muted); font-size: 12px; }
+.gate h1 { font-size: 20px; font-weight: 800; margin: 0 0 4px; line-height: 1.35; }
+.gate .sub { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+.gate form { display: grid; gap: 12px; }
+.gate label, .adm-new label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
+.gate input, .adm input, .adm select { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--surface); color: var(--ink); font-size: 14px; min-width: 0; }
+.adm-new input, .adm-new select { height: 38px; }
+.gate input:focus, .adm input:focus, .adm select:focus { border-color: var(--ink); outline: none; }
+.gate .btn { height: 40px; width: 100%; font-size: 14px; font-weight: 700; }
+.gate .err { color: var(--accent); font-size: 13px; min-height: 20px; }
+.gate h1 + .info, .gate h1 + .err { margin-top: 12px; }
+.gate .info { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.gate .foot { margin: 14px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
+.auth-bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.who { display: inline-flex; align-items: center; gap: 2px; height: 34px; padding: 0 3px 0 12px; border-radius: 999px; background: var(--surface-2); font-size: 13px; white-space: nowrap; min-width: 0; max-width: 220px; }
+.who b { overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
+.who > span { color: var(--muted); }
+.who button { border: 0; background: transparent; color: var(--muted); height: 28px; padding: 0 9px; border-radius: 999px; font-size: 13px; }
+.who button:hover { color: var(--ink); background: var(--surface); }
+.adm { position: fixed; inset: 0; z-index: 55; background: var(--bg); display: flex; flex-direction: column; }
+.adm-head { background: var(--surface); border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top, 0px); }
+.adm-head .wrap { display: flex; align-items: center; gap: 10px; padding-block: 12px; }
+.adm-head h2 { margin: 0 auto 0 0; font-size: 18px; font-weight: 800; min-width: 0; }
+.adm-body { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.adm-body > .wrap { display: grid; gap: 16px; padding-block: 20px calc(40px + env(safe-area-inset-bottom, 0px)); min-width: 0; }
+.adm-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 2px; min-width: 0; }
+.stat span { font-size: 12px; color: var(--muted); }
+.stat b { font-size: 30px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.stat small { font-size: 11.5px; color: var(--muted); }
+table.adm-tbl { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 1240px; }
+table.adm-tbl.ev { min-width: 560px; }
+table.adm-tbl th, table.adm-tbl td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+table.adm-tbl th { background: var(--surface-2); font-size: 12px; color: var(--muted); font-weight: 700; }
+table.adm-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.adm-tbl tr:last-child td { border-bottom: 0; }
+table.adm-tbl tr.dis td { color: var(--muted); }
+table.adm-tbl tr.dis td .btn { color: var(--ink); }
+table.adm-tbl td.ttl { white-space: normal; min-width: 220px; }
+table.adm-tbl td.empty { text-align: center; color: var(--muted); padding: 18px; }
+table.adm-tbl .zero { color: var(--accent); }
+.ops { display: flex; gap: 4px; align-items: center; }
+.ops input { width: 150px; height: 28px; padding: 3px 8px; font-size: 12px; }
+.ops .confirm { font-size: 12px; color: var(--accent); font-weight: 700; margin-right: 2px; }
+.pill.on { background: var(--good-soft); color: var(--good); }
+.pill.off { background: var(--accent-soft); color: var(--accent); }
+.adm-new { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px 12px; align-items: end; }
+.adm-msg { font-size: 13px; min-height: 0; }
+.adm-msg:not(:empty) { margin: 0 0 10px; }
+#admNewMsg:not(:empty) { margin: 10px 0 0; }
+.adm-msg.bad { color: var(--accent); }
+.adm-msg.ok { color: var(--good); }
+.adm-note { font-size: 12px; color: var(--muted); margin: 0; }
+@media (max-width: 860px) { .adm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .adm-new { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .adm-new { grid-template-columns: minmax(0, 1fr); } .stat b { font-size: 26px; } .who { max-width: 170px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
 
 <header class="top">
   <div class="wrap top-row">
     <div class="brand"><span class="mark">U</span><b>脱毛吧引流素材台</b><small>抖音 · 小红书 · 视频号 · 朋友圈</small></div>
-    <div class="store-pick"><label for="storeSel">当前门店</label><select id="storeSel"></select></div>
+    <div class="store-pick"><label for="citySel">城市</label><select id="citySel" aria-label="城市"></select><span class="sep" aria-hidden="true"></span><label for="storeSel">门店</label><select id="storeSel" aria-label="门店"></select></div>
     <button class="btn" id="btnStore" type="button">门店与价格</button>
     <button class="btn" id="btnPhotos" type="button">门店图库</button>
     <button class="btn ghost" id="btnBackup" type="button">备份 / 导入</button>
@@ -311,6 +377,7 @@ footer { color: var(--muted); font-size: 12px; padding-block: 28px 40px; border-
 <div id="layer"></div>
 
 <script src="base.js"></script>
+<script src="stores.js"></script>
 <script src="content_douyin.js"></script>
 <script src="content_xhs.js"></script>
 <script src="content_sph.js"></script>
