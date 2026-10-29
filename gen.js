@@ -68,12 +68,12 @@
   };
 
   var QA = [
-    ['疼不疼？', '每个人感受不一样，多数人反馈是温热或轻微刺感，档位可以自己调。'],
-    ['要做几次？', '脱毛要做多次，28 天打卡计划就是 4 周 8 次。'],
-    ['两次隔多久？', '两次至少隔 2 天，具体看小程序里的建议。'],
-    ['要准备什么？', '来之前把毛发刮干净，这是设备的使用要求。'],
-    ['卫生吗？', '独立隔间，备有消毒用品，用前可以自己再擦一遍。'],
-    ['和家用仪有什么不一样？', '店里用的也是 Ulike 设备，按次付费，不用一次买一台。']
+    ['疼不疼？', '放心～多数人反馈就是温温的、轻轻一下的感觉，档位可以自己调，第一次从低档开始就好。'],
+    ['要做几次？', '跟着 28 天打卡计划来就好，4 周 8 次，小程序会提醒你，轻松坚持～'],
+    ['两次隔多久？', '两次隔 2 天以上就好，小程序里有专属建议，跟着来很省心～'],
+    ['要准备什么？', '来之前把毛发刮干净就行，带上手机，其他店里都备好了～'],
+    ['卫生吗？', '放心～独立隔间，备有消毒用品，用前还能自己再擦一遍，安心又自在。'],
+    ['和家用仪有什么不一样？', '店里用的也是 Ulike 设备，按次付、顺路就能做，先试一次很划算～']
   ];
 
   function cta(p, acct, spoken) {
@@ -262,6 +262,7 @@
     it.title = fixText(it.title);
     it.cover.main = fixText(it.cover.main); it.cover.sub = fixText(it.cover.sub);
     Object.keys(it.f).forEach(function (k) { var v = it.f[k]; it.f[k] = Array.isArray(v) ? v.map(function (r) { return r.map(fixText); }) : fixText(v); });
+    (it.frames || []).forEach(function (f) { f.main = fixText(f.main); f.sub = fixText(f.sub); f.note = fixText(f.note); });
     return it;
   }
   function grams(s) { s = String(s || '').replace(/\{[^}]*\}|[\s，。、！？“”「」：；（）,.!?:;()#\-—|·]/g, ''); var g = {}; for (var i = 0; i < s.length - 1; i++) g[s.substr(i, 2)] = 1; return g; }
@@ -306,6 +307,14 @@
     var it = clone(top), occ = OCC[input.occasion] || OCC['常规'];
     var q = quoted(idea);
     var hook = q || (idea && idea.length <= 16 && !/[，,。；]/.test(idea) ? idea : '');
+    var PBt = (window.TMB_PLAYBOOK || {})[input.p] && window.TMB_PLAYBOOK[input.p][input.theme];
+    var pbTitle = '';
+    if (!hook && PBt && PBt.gen && PBt.gen.hooks && PBt.gen.hooks.length) {
+      /* 没有现成钩子：用本模块爆款公式里的开头和标题模板 */
+      var sc0 = DEFAULT_SCENE; for (var s0 = 0; s0 < SCENES.length; s0++) if (SCENES[s0].re.test(idea)) { sc0 = SCENES[s0]; break; }
+      hook = pick(PBt.gen.hooks, seed).replace(/\{scene\}/g, sc0.name);
+      if (PBt.gen.titles && PBt.gen.titles.length) pbTitle = pick(PBt.gen.titles, seed).replace(/\{scene\}/g, sc0.name);
+    }
     if (!hook) {
       /* 没有现成钩子：按参考模板讲的卖点来起标题，标题和正文说的是一件事 */
       var tTxt = JSON.stringify(top.f) + top.title + top.angle;
@@ -320,7 +329,8 @@
     it.acct = input.acct || it.acct; it.form = input.form || it.form; it.type = input.theme;
     it.act = rule.act; it.freq = '按需';
     if (input.occasion !== '常规') { it.period = occ.period; it.activity = occ.activity; it.when = occ.when; }
-    it.title = clip(hook, 26);
+    it.title = clip(pbTitle || hook, 26);
+    it.formula = (PBt && PBt.content && PBt.content.formula) || top.formula || '';
     it.angle = (idea ? '你的想法：' + clip(idea, 70) : '按“' + (input.points.join('、') || input.theme) + '”生成') + '。主要参考《' + top.title + '》的结构和说法。';
     it.basedOn = [top.id].concat(refs.filter(function (r) { return r.id !== top.id; }).map(function (r) { return r.id; })).slice(0, 3);
     it.cover.main = q && q.length <= 12 ? q.replace(/[，,]/, '\n') : (input.occasion !== '常规' || seed % 2 ? rule.cover.main : it.cover.main);
@@ -377,6 +387,12 @@
     it.slots = slots.filter(function (x, j) { return slots.indexOf(x) === j; }).slice(0, it.p === 'pyq' && /九宫格/.test(it.form) ? 9 : 6);
     var rf = (it.refs || []).concat(occ.refs || []);
     it.refs = rf.filter(function (x, j) { return rf.indexOf(x) === j; }).slice(0, 5);
+    /* 多张图：沿用参考模板的分页规划，封面换成新的封面文字 */
+    if (Array.isArray(it.frames) && it.frames.length) {
+      it.frames[0].main = it.cover.main; it.frames[0].sub = it.cover.sub;
+    } else if (PBt && PBt.frames && PBt.frames.plan) {
+      it.frames = PBt.frames.plan.map(function (r, i) { return { role: r[0], main: i ? r[1] : it.cover.main, sub: i ? '' : it.cover.sub, note: '', layout: r[2], style: '', formula: r[1], slot: (it.slots || [])[i] || '', ref: '' }; });
+    }
     return fixItem(it);
   }
 
@@ -405,7 +421,7 @@
         '使用者的想法：' + (input.idea || '（未填写）'),
         '主打卖点：' + (input.points.join('、') || '自定'),
         '档期/活动：' + input.occasion + '（' + (OCC[input.occasion] || OCC['常规']).line + '）',
-        '规则：1) 价格、店名、位置等用变量，原样写花括号：{新人价}{全身新人价}{八次卡}{八次单次}{冬季20次}{冬季20次腿}{双人卡}{购机立减}{打卡季截止}{购机截止}{店名}{简称}{城市}{区域}{商场}{位置}{营业时间}{周边}{门店数}。2) 禁用：永久、根治、治疗、疗效、医用、无痛、不痛、100%、绝对、顶级、首选、全网最低、保证效果，以及“最”（“最近”除外）、“第一”（“第一次”除外）。体感只写“多数人反馈是温热或轻微刺感”。3) 抖音和小红书的正文、标题、话题、分镜里不能出现：美团、微信、私信、二维码、链接（只有置顶评论A可写“某团”）；结尾引导“搜 Ulike脱毛吧＋商圈名”。4) 不贬低其他品牌，不拍身体特写，用户体验类用【写你自己的真实感受】留空。5) 写得像行业里会做内容的人：钩子具体、有场景、口语。',
+        '规则：1) 价格、店名、位置等用变量，原样写花括号：{新人价}{全身新人价}{八次卡}{八次单次}{冬季20次}{冬季20次腿}{双人卡}{购机立减}{打卡季截止}{购机截止}{店名}{简称}{城市}{区域}{商场}{位置}{营业时间}{周边}{门店数}。2) 禁用：永久、根治、治疗、疗效、医用、无痛、不痛、100%、绝对、顶级、首选、全网最低、保证效果，以及“最”（“最近”除外）、“第一”（“第一次”除外）。体感只写“多数人反馈就是温温的、轻轻一下的感觉”。3) 抖音和小红书的正文、标题、话题、分镜里不能出现：美团、微信、私信、二维码、链接（只有置顶评论A可写“某团”）；结尾引导“搜 Ulike脱毛吧＋商圈名”。4) 不贬低其他品牌，不拍身体特写，用户体验类用【写你自己的真实感受】留空。5) 写得像行业里会做内容的人：钩子具体、有场景、口语。',
         '团队已经积累的同类创意（学它们的结构、语气和细节，但不要照抄标题和钩子）：\n' + refs.map(function (e, i) { return '【参考' + (i + 1) + '】' + e.title + '（' + e.acct + ' · ' + e.form + '）\n' + (i === 0 ? JSON.stringify(e.f).slice(0, 3200) : e.angle); }).join('\n\n'),
         '只输出一个 JSON 对象，格式：{"title": "创意标题≤26字", "angle": "一句话创意说明", "cover": {"main": "封面大字≤12字，可用\\n换行", "sub": "封面小字≤16字"}, "brief": {"who": "给谁看", "hook": "钩子", "msg": "要说清楚的点", "must": "必须带", "shoot": "怎么拍", "kpi": "看什么数"}, ' + fieldSpec(input.p, input.acct) + ', "slots": ["S1".."S10" 里选 2-6 个门店图位：S1门头 S2导视 S3路线 S4店门口 S5隔间 S6设备上手 S7扫码开机 S8清洁 S9立牌 S10周边地标]}'
       ].join('\n\n');

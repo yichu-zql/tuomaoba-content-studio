@@ -44,7 +44,6 @@
   if (ORDER.indexOf(state.tab) < 0) state.tab = 'douyin';
   if (!state.stores.some(function (s) { return s.id === state.cur; })) state.cur = state.stores[0].id;
   state.stores.forEach(function (s) { state.photos[s.id] = load('tmb.photos.' + s.id, {}); });
-  GEN.sample().then(function (s) { state.ai = s; if (layer.querySelector('#genForm')) renderGenButtons(); });
 
   function items() { return state.custom.concat(BASE); }
   function byId(id) { return items().filter(function (i) { return i.id === id; })[0]; }
@@ -127,6 +126,11 @@
   function scanItem(it) { return scanText(itemText(it), it.p); }
   function plainAll(it) {
     var out = ['【' + PLATS[it.p].name + ' · ' + it.acct + ' · ' + it.type + '】' + resolve(it.title), '封面：' + resolve(val(it, 'coverMain')).replace(/\n/g, ' ') + '｜' + resolve(val(it, 'coverSub')), ''];
+    if ((it.frames || []).length) {
+      out.push('— 画面 ' + it.frames.length + ' 张 —');
+      it.frames.forEach(function (f, i) { out.push((i + 1) + '. ' + f.role + '｜' + resolve(i === 0 ? val(it, 'coverMain') : f.main).replace(/\n/g, ' ') + (f.sub ? '｜' + resolve(i === 0 ? val(it, 'coverSub') : f.sub) : '') + '｜排版：' + f.layout + (f.style ? '｜风格：' + f.style : '')); });
+      out.push('');
+    }
     fieldsOf(it).forEach(function (f) {
       var v = val(it, f[0]); out.push('— ' + f[1] + ' —');
       if (f[2] === 'table') v.forEach(function (r) { out.push(resolve(r[0]) + '｜' + resolve(r[1]) + '｜' + resolve(r[2])); }); else out.push(resolve(v));
@@ -144,7 +148,7 @@
     var img = firstPhoto(it), video = it.p === 'douyin' || it.p === 'sph';
     var ratio = mode === 'big' ? (video ? ' r916' : ' r34') : '';
     var h = '<div class="cv ' + esc(it.cover.style) + ratio + (img ? ' has-img' : '') + '">' + (img ? '<div class="bgimg" style="background-image:url(' + img + ')"></div>' : '<i class="deco d1"></i><i class="deco d2"></i>');
-    h += '<span class="brandtag">Ulike 脱毛吧</span><span class="platmark">' + PLATS[it.p].name + '</span>';
+    h += '<span class="brandtag">Ulike 脱毛吧</span><span class="platmark">' + PLATS[it.p].name + ((it.frames || []).length > 1 ? ' · ' + it.frames.length + ' 张' : '') + '</span>';
     h += '<div class="cv-in"><h4>' + esc(resolve(val(it, 'coverMain'))) + '</h4><span class="sub">' + esc(resolve(val(it, 'coverSub'))) + '</span>';
     if (it.p === 'sph' && val(it, 'mount')) h += '<span class="mount">' + esc(resolve(String(val(it, 'mount')).replace(/^[^：]*：/, '').replace(/[「」]/g, ''))) + '</span>';
     h += '</div>';
@@ -152,6 +156,20 @@
       var first = resolve(val(it, 'post') || val(it, 'summary') || it.title).split('\n')[0];
       h += (mode === 'big' ? '<div class="side"><i></i><i></i><i></i></div>' : '') + '<div class="vbar"><b>@' + (it.acct === '门店号' ? esc(resolve('{简称}')) : it.acct === '公众号' ? 'Ulike脱毛吧 公众号' : 'Ulike脱毛吧') + '</b><span>' + esc(first) + '</span></div>';
     }
+    return h + '</div>';
+  }
+  /* 多张图：每张按平台比例渲染，底图优先用本店照片，其次参考图，最后是占位 */
+  function frameRatio(it) { return it.p === 'xhs' ? 'r34' : it.p === 'pyq' ? 'r11' : it.acct === '公众号' ? 'r169' : 'r916'; }
+  function frameHTML(it, f, idx, small) {
+    var n = (it.frames || []).length, img = f.slot ? photo(f.slot) : null, ref = !img && f.ref ? refSrc(f.ref) : null;
+    var main = idx === 0 ? val(it, 'coverMain') : f.main, sub = idx === 0 ? val(it, 'coverSub') : f.sub;
+    var h = '<div class="cv fr ' + esc(it.cover.style) + ' ' + frameRatio(it) + (img ? ' has-img' : '') + (ref ? ' has-ref' : '') + '">';
+    if (img) h += '<div class="bgimg" style="background-image:url(' + img + ')"></div>';
+    else if (ref) h += '<img class="frref" src="' + ref + '" alt="" loading="lazy">';
+    else if (f.slot) h += '<div class="frph"><span>底图：' + esc(SLOTS[f.slot] ? SLOTS[f.slot].name : f.slot) + '<br>（上传本店照片后显示）</span></div>';
+    else h += '<i class="deco d1"></i>';
+    h += '<span class="frno">' + (idx + 1) + '/' + n + '</span>';
+    h += '<div class="cv-in"><h4>' + esc(resolve(main)) + '</h4>' + (sub ? '<span class="sub">' + esc(resolve(sub)) + '</span>' : '') + (!small && f.note ? '<p class="frnote">' + esc(resolve(f.note)) + '</p>' : '') + '</div>';
     return h + '</div>';
   }
   function momentHTML(it, full) {
@@ -186,7 +204,7 @@
   }
   function renderHead() {
     var P = PLATS[state.tab];
-    document.getElementById('platHead').innerHTML = '<div><h1>' + P.name + '：' + P.lead + '</h1><p>' + P.desc + '</p><div class="pills">' + P.freq.map(function (g) { return '<span class="pill">' + g + '</span>'; }).join('') + '</div></div>' +
+    document.getElementById('platHead').innerHTML = '<div><h1>' + P.name + '：' + P.lead + '</h1><ul class="pdesc">' + [].concat(P.desc).map(function (d) { return '<li>' + d + '</li>'; }).join('') + '</ul><div class="pills">' + P.freq.map(function (g) { return '<span class="pill">' + g + '</span>'; }).join('') + '</div></div>' +
       '<div><button class="btn primary" type="button" id="copyTab">复制本平台全部文案</button></div>';
     document.getElementById('themeNav').innerHTML = P.themes.map(function (t, i) {
       return '<button class="tn" type="button" data-jump="' + i + '"><b>' + t.name + '</b><span>' + ratioText(t) + '</span></button>';
@@ -215,6 +233,36 @@
       '<div class="row"><span class="pill ' + a[0] + '">' + a[1] + '</span>' + (bad ? '<span class="pill a">有禁用词</span>' : '') + '</div>' +
       '<div class="foot"><span>' + esc(resolve(it.when)) + '</span>' + (edited(it) ? '<span class="edited">已改</span>' : '') + '</div></div></button>';
   }
+  function pb(p, theme) { var P = window.TMB_PLAYBOOK || {}; return P[p] && P[p][theme] || null; }
+  function pbCard(t, i) {
+    var b = pb(state.tab, t.name); if (!b) return '';
+    return '<button class="card pbcard" type="button" data-pb="' + i + '"><div class="thumb"><div class="pbthumb"><span class="pbk">爆款拆解</span><b>' + esc(t.name) + '</b>' +
+      '<dl><dt>内容公式</dt><dd>' + esc(b.content.formula) + '</dd><dt>文案公式</dt><dd>' + esc(b.copy.formula) + '</dd></dl></div></div>' +
+      '<div class="meta"><div class="ttl">外部爆款案例与公式</div><div class="row"><span class="pill">' + b.cases.length + ' 个案例拆解</span></div><div class="row"><span class="pill">' + b.copy.titles.length + ' 个标题公式</span></div><div class="foot"><span>点开看完整拆解</span></div></div></button>';
+  }
+  function pbPanel(themeIdx) {
+    var t = PLATS[state.tab].themes[themeIdx], b = pb(state.tab, t.name); if (!b) return;
+    state.open = null;
+    var li = function (a) { return '<ul class="pblist">' + a.map(function (x) { var p = String(x).split('｜'); return '<li>' + (p.length > 1 ? '<b>' + esc(p[0]) + '</b><span>' + esc(p.slice(1).join('｜')) + '</span>' : esc(x)) + '</li>'; }).join('') + '</ul>'; };
+    var steps = '<ol class="pbsteps">' + b.content.steps.map(function (r, i) { return '<li><div class="ps-h"><span class="frn">' + (i + 1) + '</span><b>' + esc(r[0]) + '</b>' + (r[2] ? '<span class="ps-t">' + esc(r[2]) + '</span>' : '') + '</div><p>' + esc(r[1]) + '</p></li>'; }).join('') + '</ol>';
+    var cases = b.cases.map(function (c, k) {
+      return '<div class="case"><div class="case-h"><b>' + (k + 1) + '. ' + esc(c.name) + '</b><span class="pill">' + esc(c.type || '') + '</span></div>' +
+        '<dl class="brief"><dt>内容</dt><dd>' + esc(c.what) + '</dd><dt>为什么火</dt><dd>' + esc(c.why) + '</dd><dt>怎么借鉴</dt><dd>' + esc(c.borrow) + '</dd><dt>来源</dt><dd><a href="' + esc(c.url) + '" target="_blank" rel="noopener">' + esc(c.source) + '</a></dd></dl></div>';
+    }).join('');
+    layer.innerHTML = '<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="pbTitle">' +
+      '<div class="d-head"><div><div class="pills" style="margin:0"><span class="pill"><i class="dot ' + state.tab + '"></i>' + PLATS[state.tab].name + '</span><span class="pill">' + esc(t.name) + '</span><span class="pill mine">爆款拆解</span></div>' +
+      '<h2 id="pbTitle">' + esc(t.name) + '：外部爆款案例与内容、文案公式</h2><p class="angle">' + esc(b.summary) + '</p></div>' +
+      '<div class="acts"><button class="btn accent" type="button" data-pbcopy="' + themeIdx + '">复制公式</button><button class="btn" type="button" data-new="' + themeIdx + '">按公式新建创意</button><button class="btn" type="button" data-close>关闭</button></div></div>' +
+      '<div class="d-body pb-body"><div class="col">' +
+      '<div class="box"><h3>爆款内容的特点</h3>' + li(b.traits) + '</div>' +
+      '<div class="box"><h3>内容拆解与公式</h3><div class="formula">' + esc(b.content.formula) + '</div>' + steps + '<h4 class="sub-h">拍摄 / 排版要点</h4>' + li(b.content.tips) + '</div>' +
+      '<div class="box"><h3>文案拆解与公式</h3><div class="formula">' + esc(b.copy.formula) + '</div><h4 class="sub-h">标题公式</h4>' + li(b.copy.titles) + '<h4 class="sub-h">开头钩子</h4>' + li(b.copy.hooks) + '<h4 class="sub-h">结尾引导</h4>' + li(b.copy.ctas) + '<h4 class="sub-h">不要这样写</h4>' + li(b.copy.avoid) + '</div>' +
+      '</div><div class="col"><div class="box"><h3>外部优秀案例拆解<span class="note">' + b.cases.length + ' 个</span></h3><div class="cases">' + cases + '</div></div></div></div></aside>';
+  }
+  function pbText(themeIdx) {
+    var t = PLATS[state.tab].themes[themeIdx], b = pb(state.tab, t.name);
+    return ['【' + PLATS[state.tab].name + ' · ' + t.name + ' · 爆款公式】', b.summary, '', '内容公式：' + b.content.formula].concat(b.content.steps.map(function (r) { return '· ' + r[0] + '：' + r[1] + '（' + r[2] + '）'; }), ['', '文案公式：' + b.copy.formula, '标题：'], b.copy.titles.map(function (x) { return '· ' + x; }), ['开头钩子：'], b.copy.hooks.map(function (x) { return '· ' + x; }), ['结尾引导：'], b.copy.ctas.map(function (x) { return '· ' + x; })).join('\n');
+  }
   function renderThemes() {
     var P = PLATS[state.tab];
     document.getElementById('themes').innerHTML = P.themes.map(function (t, i) {
@@ -223,7 +271,7 @@
       return '<section class="theme" id="theme-' + i + '" data-theme="' + esc(t.name) + '"><div class="th-head"><div><h2>' + t.name + '<span class="pill">' + ratioText(t) + '</span><span class="cnt">' + list.length + ' 条</span></h2><div class="say">' + say + '</div></div>' +
         '<div class="pager"><button class="btn sm ghost" type="button" data-copytheme="' + i + '">复制本主题</button><button class="arrow" type="button" data-pg="-1" aria-label="上一页">‹</button><span class="pg">1 / 1</span><button class="arrow" type="button" data-pg="1" aria-label="下一页">›</button></div></div>' +
         '<div class="track" tabindex="0" aria-label="' + t.name + ' 创意">' +
-        '<button class="card blank" type="button" data-new="' + i + '"><div class="thumb"><span class="plus">+</span><p>空白创意<br>写下想法和形式，生成这个主题的新创意</p></div><div class="meta"><div class="ttl">新建「' + t.name + '」创意</div><div class="row"><span class="pill">' + P.name + '</span></div><div class="row"><span class="pill">输入想法即可</span></div><div class="foot"><span>保存到这一栏最前面</span></div></div></button>' +
+        '<button class="card blank" type="button" data-new="' + i + '"><div class="thumb"><span class="plus">+</span><p>空白创意<br>写下想法和形式，生成这个主题的新创意</p></div><div class="meta"><div class="ttl">新建「' + t.name + '」创意</div><div class="row"><span class="pill">' + P.name + '</span></div><div class="row"><span class="pill">输入想法即可</span></div><div class="foot"><span>保存到这一栏最前面</span></div></div></button>' + pbCard(t, i) +
         list.map(cardHTML).join('') + '</div></section>';
     }).join('');
     document.querySelectorAll('.track').forEach(function (tr) { tr.addEventListener('scroll', function () { updatePager(tr); }, { passive: true }); updatePager(tr); });
@@ -254,7 +302,7 @@
   /* ---------- 详情抽屉 ---------- */
   var layer = document.getElementById('layer');
   function openItem(id) {
-    state.open = byId(id) || null; state.editing = {};
+    state.open = byId(id) || null; state.editing = {}; state.frame = 0;
     if (!state.open) return closeLayer();
     T('view', state.open);
     try { history.replaceState(null, '', '#' + id); } catch (e) {}
@@ -302,6 +350,7 @@
     var missing = itemText(it).match(/【待填：[^】]+】/g);
     if (missing) chk += '<div class="chk warn"><b>门店信息待填：' + uniq(missing).join(' ').replace(/【待填：|】/g, ' ') + '</b>在“门店与价格”里填好后自动替换。</div>';
     var b = it.brief, video = it.p === 'douyin' || it.p === 'sph';
+    var fr = it.frames || [], cur = Math.min(state.frame || 0, Math.max(0, fr.length - 1));
     var coverFields = [['coverMain', '封面大字', 'long'], ['coverSub', '封面小字', 'text']];
     var acts = '<button class="btn accent" type="button" data-act="copyall">复制全部文案</button>' +
       (it.custom ? '<button class="btn" type="button" data-act="regen">换一版</button><button class="btn ghost" type="button" data-act="delcustom">删除</button>' : '') +
@@ -310,12 +359,20 @@
       '<div class="d-head"><div><div class="pills" style="margin:0"><span class="pill"><i class="dot ' + it.p + '"></i>' + PLATS[it.p].name + ' · ' + esc(it.acct) + '</span><span class="pill">' + esc(it.type) + '</span><span class="pill">' + esc(it.form || '') + '</span><span class="pill ' + a[0] + '">' + a[1] + '</span><span class="pill">' + esc(resolve(it.when)) + ' · ' + esc(it.freq) + '</span>' + (it.custom ? '<span class="pill mine">' + (it.ai ? 'Claude 生成' : '快速生成') + '</span>' : '') + '</div>' +
       '<h2 id="dTitle">' + esc(resolve(it.title)) + '</h2><p class="angle">' + esc(resolve(it.angle)) + '</p>' + refLinks(it) + '</div><div class="acts">' + acts + '</div></div>' +
       '<div class="d-body"><div class="col">' +
-      '<div class="box"><h3>画面预览<span class="note">上传门店图后自动换成本店照片</span></h3><div class="cover-wrap' + (video ? ' video' : '') + '">' + coverHTML(it, 'big') + '</div></div>' +
+      (fr.length ? '<div class="box"><h3>画面 · ' + fr.length + ' 张<span class="note">' + esc(fr[cur].role) + '</span></h3><div class="frview ' + frameRatio(it) + '"><button class="frnav" type="button" data-frame="' + ((cur - 1 + fr.length) % fr.length) + '" aria-label="上一张">‹</button><div class="frmain">' + frameHTML(it, fr[cur], cur) + '</div><button class="frnav" type="button" data-frame="' + ((cur + 1) % fr.length) + '" aria-label="下一张">›</button></div>' +
+        '<div class="frthumbs">' + fr.map(function (f, i) { return '<button type="button" class="frthumb' + (i === cur ? ' on' : '') + '" data-frame="' + i + '" aria-label="第 ' + (i + 1) + ' 张">' + frameHTML(it, f, i, true) + '</button>'; }).join('') + '</div></div>'
+        : '<div class="box"><h3>画面预览<span class="note">上传门店图后自动换成本店照片</span></h3><div class="cover-wrap' + (video ? ' video' : '') + '">' + coverHTML(it, 'big') + '</div></div>') +
       (it.p === 'pyq' ? '' : '<div class="box"><h3>封面文字</h3>' + coverFields.map(function (f) { return fieldHTML(it, f); }).join('') + '</div>') +
       ((it.slots || []).length ? '<div class="box"><h3>要用的门店图<span class="note">' + it.slots.length + ' 张，点图上传本店照片</span></h3><div class="slots">' + it.slots.map(slotTile).join('') + '</div></div>' : '') +
       ((it.refs || []).length ? '<div class="box"><h3>参考素材图<span class="note">点开看大图</span></h3><div class="refs">' + it.refs.map(function (r) { return '<button class="ref" type="button" data-ref="' + esc(r) + '"><img src="' + refSrc(r) + '" alt="' + esc(REFS[r]) + '" loading="lazy"><span>' + esc(REFS[r]) + '</span></button>'; }).join('') + '</div></div>' : '') +
       '</div><div class="col">' + chk +
-      '<div class="box"><h3>创意说明</h3><dl class="brief"><dt>给谁看</dt><dd>' + esc(resolve(b.who)) + '</dd><dt>钩子</dt><dd>' + esc(resolve(b.hook)) + '</dd><dt>要说清楚</dt><dd>' + esc(resolve(b.msg)) + '</dd><dt>必须带</dt><dd>' + esc(resolve(b.must)) + '</dd><dt>怎么拍</dt><dd>' + esc(resolve(b.shoot)) + '</dd><dt>看什么数</dt><dd>' + esc(resolve(b.kpi)) + '</dd></dl></div>' +
+      '<div class="box"><h3>总创意</h3><dl class="brief">' + (it.formula ? '<dt>内容公式</dt><dd><b>' + esc(it.formula) + '</b></dd>' : '') + '<dt>给谁看</dt><dd>' + esc(resolve(b.who)) + '</dd><dt>钩子</dt><dd>' + esc(resolve(b.hook)) + '</dd><dt>要说清楚</dt><dd>' + esc(resolve(b.msg)) + '</dd><dt>必须带</dt><dd>' + esc(resolve(b.must)) + '</dd><dt>怎么拍</dt><dd>' + esc(resolve(b.shoot)) + '</dd><dt>看什么数</dt><dd>' + esc(resolve(b.kpi)) + '</dd></dl></div>' +
+      (fr.length ? '<div class="box"><h3>逐张说明<span class="note">点一张在左边查看</span></h3><ol class="frlist">' + fr.map(function (f, i) {
+        var main = i === 0 ? val(it, 'coverMain') : f.main, sub = i === 0 ? val(it, 'coverSub') : f.sub;
+        return '<li class="' + (i === cur ? 'on' : '') + '"><button type="button" class="frli-h" data-frame="' + i + '"><span class="frn">' + (i + 1) + '</span><b>' + esc(f.role) + '</b></button>' +
+          '<dl class="brief"><dt>公式</dt><dd><b>' + esc(f.formula) + '</b></dd><dt>排版</dt><dd>' + esc(f.layout) + '</dd><dt>风格</dt><dd>' + esc(f.style || '') + '</dd><dt>图上文字</dt><dd>' + renderTpl(main, it.p) + (sub ? '<br><span class="note">' + renderTpl(sub, it.p) + '</span>' : '') + (f.note ? '<br><span class="note">' + renderTpl(f.note, it.p) + '</span>' : '') + '</dd>' +
+          (f.slot ? '<dt>底图</dt><dd>' + esc(SLOTS[f.slot] ? SLOTS[f.slot].name + '：' + SLOTS[f.slot].guide : f.slot) + '</dd>' : '') + (f.ref ? '<dt>参考</dt><dd><button class="chip" type="button" data-ref="' + esc(f.ref) + '">' + esc(REFS[f.ref] || f.ref) + '</button></dd>' : '') + '</dl></li>';
+      }).join('') + '</ol></div>' : '') +
       '<div class="box"><h3>文案<span class="note">黄色底 = 门店变量</span></h3>' + fieldsOf(it).map(function (f) { return fieldHTML(it, f); }).join('') + '</div>' +
       '</div></div></aside>';
     var nb = layer.querySelector('.d-body'); if (nb) nb.scrollTop = st;
@@ -364,13 +421,7 @@
   }
   function renderGenButtons() {
     var el = document.getElementById('gActs'); if (!el) return;
-    var q = quota(), ai = '';
-    if (state.ai) {
-      var note = q.reset ? '剩 ' + q.left + ' 次，' + hhmm(q.reset) + ' 恢复为 ' + AI_LIMIT + ' 次' : '每人每 5 小时 ' + AI_LIMIT + ' 次，从第一次使用开始计时';
-      ai = '<span class="note">Claude 生成用你自己的 Claude 额度。' + note + '</span><button class="btn" type="button" data-act="genlocal">快速生成</button>' +
-        (q.left > 0 ? '<button class="btn accent" type="button" data-act="genai">用 Claude 生成 · 剩 ' + q.left + ' 次</button>' : '<button class="btn accent" type="button" disabled>Claude 次数已用完 · ' + hhmm(q.reset) + ' 恢复</button>');
-    } else ai = '<span class="note">从团队积累的 ' + items().length + ' 条创意里找最接近的，按你的想法改写</span><button class="btn accent" type="button" data-act="genlocal">生成创意</button>';
-    el.innerHTML = ai + '<button class="btn" type="button" data-close>取消</button>';
+    el.innerHTML = '<span class="note">从团队积累的 ' + items().length + ' 条创意和本模块的爆款公式里找最接近的，按你的想法改写</span><button class="btn accent" type="button" data-act="genlocal">生成创意</button><button class="btn" type="button" data-close>取消</button>';
   }
   function readGen() {
     gen.idea = (document.getElementById('gIdea') || {}).value || '';
@@ -453,7 +504,7 @@
 
   /* ---------- 事件 ---------- */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-tab],[data-f],[data-open],[data-new],[data-close],[data-act],[data-ref],[data-jump],[data-pg],[data-copytheme],[data-g],#copyTab,#btnStore,#btnPhotos,#btnBackup');
+    var t = e.target.closest('[data-frame],[data-pb],[data-pbcopy],[data-tab],[data-f],[data-open],[data-new],[data-close],[data-act],[data-ref],[data-jump],[data-pg],[data-copytheme],[data-g],#copyTab,#btnStore,#btnPhotos,#btnBackup');
     if (!t) return;
     if (t.dataset.tab) { state.tab = t.dataset.tab; state.acct = null; state.period = null; save('tmb.tab', state.tab); renderMain(); window.scrollTo(0, 0); return; }
     if (t.dataset.f) { state[t.dataset.f] = t.dataset.v === '全部' ? null : t.dataset.v; renderFilters(); renderThemes(); return; }
@@ -462,6 +513,9 @@
     if (t.dataset.copytheme) { var th = PLATS[state.tab].themes[+t.dataset.copytheme].name, l = themeItems(state.tab, th); T('copy', null, PLATS[state.tab].name + ' · 复制主题「' + th + '」'); copy(l.map(plainAll).join('\n\n==========\n\n'), '已复制「' + th + '」' + l.length + ' 条'); return; }
     if (t.dataset.open) { openItem(t.dataset.open); return; }
     if (t.dataset.new) { genModal(state.tab, +t.dataset.new); return; }
+    if (t.dataset.pb) { pbPanel(+t.dataset.pb); return; }
+    if (t.dataset.frame !== undefined && state.open) { state.frame = +t.dataset.frame; renderDrawer(); return; }
+    if (t.dataset.pbcopy) { copy(pbText(+t.dataset.pbcopy), '已复制公式'); return; }
     if (t.hasAttribute('data-close')) { closeLayer(); return; }
     if (t.dataset.ref) { lightbox(t.dataset.ref); return; }
     if (t.dataset.g) {
