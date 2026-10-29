@@ -289,7 +289,9 @@
       /* 档期要对得上：选了活动就优先同档期；没选就少用节日专属的模板 */
       if (input.occasion !== '常规') { if (t.period === occ.period || (occ.activity && t.activity === occ.activity)) s += 8; else if (t.period !== '常规') s -= 6; }
       else if (['年货节', '情人节', '女神节', '双12 / 跨年', '11.11 购机'].indexOf(t.period) >= 0) s -= 4;
-      (input.points || []).forEach(function (k) { if (POINT_KW[k] && kwHit(k, docText(t))) s += 2; });
+      /* 没选活动时，不拿打卡 / 邀友 / 集赞这类活动专属模板当骨架，否则正文会讲一个没选的活动 */
+      if (input.occasion === '常规' && t.activity) s -= 10;
+      (input.points || []).forEach(function (k, j) { if (POINT_KW[k]) s += Math.min(3, kwCount(k, docText(t))) * (j ? 1 : 2); });
       if (t.edited) s += 1.5;
       /* 自己生成、还没改过的创意参考权重低一些；内容太短的不拿来做骨架 */
       if (t.custom && !t.edited) s -= 3;
@@ -354,8 +356,9 @@
     if (needPoint) it.brief.msg = pointLine + '；' + it.brief.msg;
     var f = it.f, p = input.p;
 
+    var formChanged = !!(f.script && top.form !== it.form);
     if (f.script) {
-      if (top.form !== it.form) f.script = rule.f.script;
+      if (formChanged) f.script = rule.f.script;
       else {
         f.script[0][2] = '字幕：' + hook;
         if (needPoint && f.script.length > 2) f.script[1][2] = '口播：' + pointLine;
@@ -396,7 +399,13 @@
     var rf = (it.refs || []).concat(occ.refs || []);
     it.refs = rf.filter(function (x, j) { return rf.indexOf(x) === j; }).slice(0, 5);
     /* 多张图：沿用参考模板的分页规划，封面换成新的封面文字 */
-    if (Array.isArray(it.frames) && it.frames.length) {
+    if (formChanged) {
+      /* 换了形式：分镜是新写的，画面也按新分镜重排，不沿用参考模板的画面 */
+      it.frames = f.script.map(function (r, i) {
+        var words = String(r[2]).replace(/^[^：]{1,4}：/, '').split(/[，。｜]/)[0];
+        return { role: (i ? '关键帧' + (i + 1) : '封面帧') + ' · ' + r[0], main: i ? clip(words, 12) : it.cover.main, sub: i ? '' : it.cover.sub, note: r[2], layout: r[1], style: '', formula: '', slot: (it.slots || [])[i] || '', ref: '' };
+      });
+    } else if (Array.isArray(it.frames) && it.frames.length) {
       it.frames[0].main = it.cover.main; it.frames[0].sub = it.cover.sub;
     } else if (PBt && PBt.frames && PBt.frames.plan) {
       it.frames = PBt.frames.plan.map(function (r, i) { return { role: r[0], main: i ? r[1] : it.cover.main, sub: i ? '' : it.cover.sub, note: '', layout: r[2], style: '', formula: r[1], slot: (it.slots || [])[i] || '', ref: '' }; });

@@ -37,7 +37,7 @@
     { k: 'pain', label: '怕疼', re: /疼|痛|刺|烫|灼|忍不住|受不了|敏感|红肿/g, point: '' },
     { k: 'price', label: '怕贵', re: /贵|便宜|价格|多少钱|\d+(\.\d+)?\s*(元|块)|省钱|划算|性价比|白菜价|几百|几千|办卡|一次不到|奶茶钱|智商税/g, point: '价格反差' },
     { k: 'hassle', label: '怕麻烦', re: /预约|排队|麻烦|懒|省事|顺路|午休|下班|几分钟|方便|随时|不用等|通勤|楼下/g, point: '顺路就做' },
-    { k: 'shy', label: '怕尴尬', re: /尴尬|社恐|推销|尬聊|没人|一个人|隐私|害羞|被看|不好意思|i人/gi, point: '没人推销' },
+    { k: 'shy', label: '怕尴尬', re: /尴尬|尴不尬|社恐|推销|尬聊|没人|没有店员|一个人|隐私|害羞|被看|看不到|不好意思|拉着|被拉|i人/gi, point: '没人推销' },
     { k: 'clean', label: '怕不干净', re: /卫生|干净|消毒|清洁|脏|一次性/g, point: '看得见的干净' },
     { k: 'beauty', label: '想变美', re: /光滑|嫩|好看|自信|露|夏天|短袖|吊带|穿搭|约会|精致|变美|颜值|腿毛|腋毛/g, point: '' },
     { k: 'deal', label: '占便宜', re: /福利|免费|白嫖|送|抽奖|领|优惠|券|活动|限时|赠|0\s*元|有礼|羊毛/g, point: '价格反差' },
@@ -72,7 +72,7 @@
     { k: 'where', bank: 'where', label: '在哪 / 求店名', re: /在哪|地址|哪里|位置|求店名|坐标|求链接|哪家|定位/, reply: 'Q：店在哪？\nA：{城市}{商场}{位置}，搜「Ulike脱毛吧」就能看到离你最近的店～' },
     { k: 'effect', bank: 'times', label: '效果 / 几次', re: /效果|几次|多久|有用吗|有效吗|会长|反弹|还长吗/, reply: 'Q：要做几次？\nA：跟着 28 天打卡计划来，4 周 8 次，小程序会提醒你；效果因人而异，坚持按计划做就好～' },
     { k: 'safe', bank: 'clean', label: '卫生 / 安全', re: /卫生|干净|安全|过敏|副作用|变黑|敏感肌|伤皮肤/, reply: 'Q：卫生吗？\nA：独立隔间，备有消毒用品，用前还能自己再擦一遍；皮肤有特殊情况的先咨询专业意见～' },
-    { k: 'want', label: '想去 / 种草', re: /想去|想试|蹲|求|已下单|冲|马住|码住|收藏了|心动/, reply: '' },
+    { k: 'want', bank: 'want', label: '想去 / 种草', re: /想去|想试|蹲|求|已下单|冲|马住|码住|收藏了|心动|狂喜/, reply: '' },
     { k: 'doubt', bank: 'ad', label: '质疑 / 是不是广告', re: /广告|托|真的吗|假的|智商税|恰饭|骗/, reply: 'Q：是广告吗？\nA：是我们自己的店哈～第一次可以先买新人体验，{新人价} 元试一次再决定。' }
   ];
   function detectTopics(comments) {
@@ -253,7 +253,15 @@
     var FX = (window.TMB_RULES || {}).fix || function (x) { return x; };
     mine = mine.map(FX); skeleton = FX(skeleton);
     var e0 = emos[0] ? emos[0].label : '好奇';
-    var formula = h0.label + '钩子' + (h0.quote ? '（“' + clip(h0.quote, 18) + '”）' : '') + ' + ' + st.label + ' + 戳「' + e0 + '」' + (iNotes[0].indexOf('结尾抛问题') === 0 ? ' + 结尾抛问题引评论' : '') + (topics.length ? ' ；评论区在聊「' + topics.slice(0, 2).map(function (t) { return t.label; }).join('」「') + '」' : '');
+    /* 第二种钩子分数接近时一起算（很多爆款是“点名 + 提问”这种组合） */
+    var hookName = h0.label + (h1 !== h0 && h1.s >= h0.s * 0.6 ? ' + ' + h1.label : '');
+    var ask = iNotes[0].indexOf('结尾抛问题') === 0;
+    var formula = hookName + '钩子 + ' + st.label + '结构 + 戳「' + e0 + '」' + (ask ? ' + 结尾抛问题' : '');
+    /* 一句话说人话：它火在哪、我们该借什么 */
+    var sig0 = sig.rows[0];
+    var summary = '它开头用' + hookName + '把人留住，' + (st.k === 'talk' ? '' : '用' + st.label + '的结构展开，') + '戳中的是「' + e0 + '」' + (ask ? '，结尾再把人引到评论区' : '') + '。' +
+      (sig0 ? (sig0.k === '收藏 / 点赞' ? (parseFloat(sig0.v) >= 60 ? '收藏很高，说明大家想“存起来照着做”。' : '') : '') : '') +
+      '我们最该借的：' + hookName + '的开头' + (st.k === 'talk' ? '' : ' + ' + st.label + '的结构') + '，情绪继续打「' + e0 + '」。';
     var metric = p === 'xhs' ? '封面点击率和收藏率' : p === 'pyq' ? '咨询数和本店渠道码核销' : '3 秒留存和完播率';
     var ab = {
       hooks: mine.slice(0, 3),
@@ -263,7 +271,7 @@
     ab.test = FX(ab.test);
 
     return {
-      p: p, hooks: hooks.slice(0, 3), emos: emos.slice(0, 4), struct: st, cover: { text: cv, notes: cvNotes },
+      p: p, summary: summary, hookName: hookName, hooks: hooks.slice(0, 3), emos: emos.slice(0, 4), struct: st, cover: { text: cv, notes: cvNotes },
       interact: { notes: iNotes, topics: topics }, signal: sig, risks: risks, formula: formula,
       map: { theme: theme, form: form, points: points, occasion: occ, hooks: mine, skeleton: skeleton !== mine[0] ? skeleton : '' },
       ab: ab

@@ -253,7 +253,7 @@
   function pb(p, theme) { var P = window.TMB_PLAYBOOK || {}; return P[p] && P[p][theme] || null; }
   function pbCard(t, i) {
     var b = pb(state.tab, t.name); if (!b) return '';
-    return '<button class="card pbcard" type="button" data-pb="' + i + '"><div class="thumb"><div class="pbthumb"><span class="pbk">爆款拆解</span><b>' + esc(t.name) + '</b>' +
+    return '<button class="card pbcard" type="button" data-pb="' + i + '"><div class="thumb"><div class="pbthumb"><span class="pbk">爆款公式</span><b>' + esc(t.name) + '</b>' +
       '<dl><dt>内容公式</dt><dd>' + esc(b.content.formula) + '</dd><dt>文案公式</dt><dd>' + esc(b.copy.formula) + '</dd></dl></div></div>' +
       '<div class="meta"><div class="ttl">外部爆款案例与公式</div><div class="row"><span class="pill">' + b.cases.length + ' 个案例拆解</span>' + (brkFor(state.tab, t.name).length ? '<span class="pill mine">团队拆过 ' + brkFor(state.tab, t.name).length + ' 条</span>' : '') + '</div><div class="row"><span class="pill">' + b.copy.titles.length + ' 个标题公式</span></div><div class="foot"><span>点开看完整拆解</span></div></div></button>';
   }
@@ -267,7 +267,7 @@
         '<dl class="brief"><dt>内容</dt><dd>' + esc(c.what) + '</dd><dt>为什么火</dt><dd>' + esc(c.why) + '</dd><dt>怎么借鉴</dt><dd>' + esc(c.borrow) + '</dd><dt>来源</dt><dd><a href="' + esc(c.url) + '" target="_blank" rel="noopener">' + esc(c.source) + '</a></dd></dl></div>';
     }).join('');
     layer.innerHTML = '<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="pbTitle">' +
-      '<div class="d-head"><div><div class="pills" style="margin:0"><span class="pill"><i class="dot ' + state.tab + '"></i>' + PLATS[state.tab].name + '</span><span class="pill">' + esc(t.name) + '</span><span class="pill mine">爆款拆解</span></div>' +
+      '<div class="d-head"><div><div class="pills" style="margin:0"><span class="pill"><i class="dot ' + state.tab + '"></i>' + PLATS[state.tab].name + '</span><span class="pill">' + esc(t.name) + '</span><span class="pill mine">爆款公式</span></div>' +
       '<h2 id="pbTitle">' + esc(t.name) + '：外部爆款案例与内容、文案公式</h2><p class="angle">' + esc(b.summary) + '</p></div>' +
       '<div class="acts"><button class="btn accent" type="button" data-pbcopy="' + themeIdx + '">复制公式</button><button class="btn" type="button" data-new="' + themeIdx + '">按公式新建创意</button><button class="btn" type="button" data-close>关闭</button></div></div>' +
       '<div class="d-body pb-body"><div class="col">' +
@@ -326,6 +326,7 @@
   function openItem(id) {
     state.open = byId(id) || null; state.editing = {}; state.frame = 0;
     if (!state.open) return closeLayer();
+    layer.innerHTML = ''; /* 新打开的抽屉从顶部开始看，不沿用上一个弹层的滚动位置 */
     T('view', state.open);
     try { history.replaceState(null, '', '#' + id); } catch (e) {}
     renderDrawer();
@@ -522,7 +523,7 @@
       '<label class="gfield">封面大字（选填）<input id="bCover" value="' + esc(x.cover) + '" placeholder="封面上最大的那行字"></label>' +
       '<label class="gfield">正文 / 口播全文<textarea id="bBody" placeholder="小红书复制正文；抖音复制文案，口播可以用字幕或自己听写">' + esc(x.body) + '</textarea></label>' +
       '<label class="gfield">热门评论（选填，一行一条，5–10 条就够）<textarea id="bCmt" class="sm" placeholder="复制点赞多的评论，能看出大家在关心什么">' + esc(x.comments) + '</textarea></label>' +
-      '<div class="gfield">页面上的数据（选填，不填就不判断爆的类型）<div class="bdata">' + BRK_DATA.map(function (d) { return '<label>' + d[1] + '<input id="bd-' + d[0] + '" inputmode="decimal" value="' + esc(x.data[d[0]] || '') + '" placeholder="如 1.2w"></label>'; }).join('') + '</div></div>' +
+      '<div class="gfield">页面上的数据（选填，不填就不判断爆的类型）<div class="bdata">' + BRK_DATA.map(function (d) { return '<label>' + d[1] + '<input id="bd-' + d[0] + '" inputmode="decimal" value="' + esc(x.data[d[0]] || '') + '" placeholder="选填"></label>'; }).join('') + '</div></div>' +
       '<label class="gfield">链接（选填，方便回看）<input id="bUrl" value="' + esc(x.url) + '" placeholder="https://"></label>' +
       '<div class="gfield">截图（选填，存着回看，不会自动识别文字）<div class="shots">' + shots + ((x.shots || []).length < 3 ? '<label class="shot add">+<input type="file" accept="image/*" hidden id="bShot"></label>' : '') + '</div></div>' +
       '</div><div class="m-acts"><span class="note" id="bStatus" aria-live="polite"></span><button class="btn accent" type="button" data-act="brkrun">开始拆解</button>' + (state.ai ? '<button class="btn" type="button" data-act="brkai">用 Claude 深度拆解</button>' : '') + '</div></div>';
@@ -548,11 +549,11 @@
     var ai = r.ai ? '<div class="box ai"><h3>Claude 补充<span class="note">基于你粘贴的内容</span></h3><dl class="brief">' + (r.ai.why ? '<dt>为什么火</dt><dd>' + esc(r.ai.why) + '</dd>' : '') + (r.ai.audience ? '<dt>谁在看</dt><dd>' + esc(r.ai.audience) + '</dd>' : '') + ((r.ai.borrow || []).length ? '<dt>能借的</dt><dd>' + r.ai.borrow.map(esc).join('<br>') + '</dd>' : '') + ((r.ai.cover || []).length ? '<dt>封面</dt><dd>' + r.ai.cover.map(function (c) { return esc(resolve(c)); }).join('<br>') + '</dd>' : '') + '</dl></div>' : '';
     var topics = r.interact.topics.length ? '<ul class="topics">' + r.interact.topics.map(function (t) {
       var rep = t.bank && typeof RP === 'function' ? RP(t.bank, 1, 'guan') : t.reply;
-      return '<li><div class="tp-h"><b>' + esc(t.label) + '</b><span class="pill">' + t.n + ' / ' + t.total + ' 条</span></div>' + (t.sample.length ? '<p class="note">“' + t.sample.map(esc).join('”　“') + '”</p>' : '') + (rep ? '<p class="rep">' + esc(resolve(rep)).replace(/\n/g, '<br>') + '</p>' : '') + '</li>';
+      return '<li><div class="tp-h"><b>' + esc(t.label) + '</b><span class="pill">' + t.n + ' 条</span></div>' + (t.sample.length ? '<p class="note">“' + t.sample.map(esc).join('”　“') + '”</p>' : '') + (rep ? '<p class="rep">' + esc(resolve(rep)).replace(/\n/g, '<br>') + '</p>' : '') + '</li>';
     }).join('') + '</ul>' : '<p class="note">没贴评论。评论区是下一条选题的来源，下次记得复制几条点赞多的。</p>';
     var sig = r.signal.rows.length ? '<table class="sb sig"><tbody>' + r.signal.rows.map(function (x) { return '<tr><td>' + esc(x.k) + '</td><td><b>' + esc(x.v) + '</b></td><td>' + esc(x.note) + '</td></tr>'; }).join('') + '</tbody></table>' : '';
-    return '<div class="box"><h3>2 · 它为什么火</h3><div class="formula">' + esc(r.formula) + '</div>' +
-      '<dl class="brief"><dt>钩子</dt><dd><b>' + esc(h0.label) + '</b>' + (h0.quote ? '：“' + esc(h0.quote) + '”' : '') + '<br><span class="note">' + esc(h0.why) + '</span></dd>' +
+    return '<div class="box"><h3>2 · 它为什么火</h3><div class="formula">' + esc(r.formula) + '</div>' + (r.summary ? '<p class="brk-sum">' + esc(r.summary) + '</p>' : '') +
+      '<dl class="brief"><dt>钩子</dt><dd><b>' + esc(r.hookName || h0.label) + '</b>' + (h0.quote ? '：“' + esc(h0.quote) + '”' : '') + '<br><span class="note">' + esc(h0.why) + '</span></dd>' +
       '<dt>情绪</dt><dd>' + (r.emos.length ? r.emos.map(function (e, i) { return (i ? '' : '<b>') + esc(e.label) + (i ? '' : '</b>'); }).join(' · ') : '没有明显的情绪词，可能靠画面或人设') + '</dd>' +
       '<dt>结构</dt><dd><b>' + esc(r.struct.label) + '</b><span class="note">　' + esc(r.struct.tip) + '</span></dd>' +
       (r.cover.notes.length ? '<dt>封面</dt><dd>' + r.cover.notes.map(esc).join('；') + '</dd>' : '') +
@@ -766,7 +767,7 @@
       state.brk.result = BRK.analyze(bx, { scan: scanText });
       if (keepAi) state.brk.result.ai = keepAi;
       saveBreakRec(); T('break', null, '拆对标 · ' + brkName(state.brk));
-      renderBreak(); var nb2 = layer.querySelector('.brk-body'); if (nb2 && window.innerWidth < 860) { var rc = nb2.querySelectorAll('.col')[1]; if (rc) rc.scrollIntoView({ behavior: 'smooth' }); }
+      renderBreak(); var nb2 = layer.querySelector('.brk-body'); if (nb2) { nb2.scrollTop = 0; if (window.innerWidth < 860) { var rc = nb2.querySelectorAll('.col')[1]; if (rc) rc.scrollIntoView({ behavior: 'smooth' }); } }
       toast('拆完了，已存入拆解库'); return;
     }
     if (act === 'brkai') { runBreakAI(); return; }
@@ -786,7 +787,7 @@
       var bin = BRK.toInput(rec, { theme: g('bTheme'), acct: g('bAcct'), form: g('bForm'), hook: hook }); bin.occasion = g('bOcc') || bin.occasion;
       var bi = GEN.smart(bin, 0, pool());
       bi.fromBreak = rec.id;
-      bi.angle = '对标拆解：' + rec.result.formula + '。' + bi.angle;
+      bi.angle = '改写自对标《' + brkName(rec) + '》：借它的' + (rec.result.hookName || rec.result.hooks[0].label) + '开头和' + rec.result.struct.label + '结构，戳「' + ((rec.result.emos[0] || {}).label || '好奇') + '」。' + (bi.basedOn && bi.basedOn[0] && byId(bi.basedOn[0]) ? '拍法参考《' + resolve(byId(bi.basedOn[0]).title) + '》。' : '');
       var alts = [bi.title].concat(rec.result.map.hooks.filter(function (h) { return h !== hook && h !== bi.title; })).slice(0, 3);
       bi.ab = { hooks: alts, test: rec.result.ab.test, metric: rec.result.ab.metric };
       T('breakGen', bi);
