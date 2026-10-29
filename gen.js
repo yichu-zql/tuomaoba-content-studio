@@ -16,7 +16,7 @@
     { re: /约会|见面|男朋友|女朋友|对象/, name: '约会前', who: '有约会、见面计划的人' },
     { re: /旅行|旅游|度假|海边|出游/, name: '旅行前', who: '计划出去玩、要穿短袖的人' },
     { re: /过年|回家|春节|年货/, name: '过年回家前', who: '年前想收拾一下自己的人' },
-    { re: /闺蜜|朋友|同事|室友|姐妹/, name: '约上朋友', who: '喜欢和朋友结伴的女生' },
+    { re: /闺蜜|朋友|同事|室友|姐妹/, name: '和朋友逛街', who: '喜欢和朋友结伴的女生' },
     { re: /夏天|短袖|露/, name: '夏天前', who: '每年夏天才想起脱毛的人' },
     { re: /冬天|冬季|长袖/, name: '冬天', who: '想趁冬天开始脱毛的人' }
   ];
@@ -76,9 +76,11 @@
     ['卫生吗？', '一人一间，台面上有消毒湿巾。我自己去也是先擦一遍再用，一两分钟的事。'],
     ['和家用仪有什么不一样？', '店里用的就是 Ulike 的设备。区别是不用自己买、不怕吃灰，顺路做一次付一次。']
   ];
-  function cta(p, acct, spoken) {
+  /* 朋友圈结尾别每条都一样，像群发 */
+  var PYQ_CTA = ['想试的点卡片，或者找我拿本店优惠码', '附近的可以点卡片看看，有问题直接问我', '要本店优惠码的私我一声', '想去之前有啥想问的，评论或私聊都行'];
+  function cta(p, acct, spoken, seed) {
     if (p === 'sph') return '点下方链接，看离你最近的门店👇';
-    if (p === 'pyq') return acct === '老客' ? '想去的私我，我发你邀请卡～' : '想试的点卡片，或者找我拿本店优惠码～';
+    if (p === 'pyq') return acct === '老客' ? '想去的私我，我发你邀请卡' : PYQ_CTA[(seed || 0) % PYQ_CTA.length];
     if (acct === '门店号') return spoken ? '{商场}{位置}，搜 Ulike脱毛吧 就能找到' : '📍{商场}{位置}｜搜「Ulike脱毛吧 {商场}」';
     return spoken ? '搜 Ulike脱毛吧，看离你最近的店' : '搜「Ulike脱毛吧＋商圈名」看离你最近的店～';
   }
@@ -181,7 +183,7 @@
     var line1 = sub(pick(p0.lines, seed)), line2 = sub(pick(p1.lines, seed, 1));
     if (line2 === line1) line2 = '从进门、扫码到做完，全程自己来';
     var allLines = pts.map(function (k, j) { return sub(POINTS[k].lines[(seed + j) % POINTS[k].lines.length]); });
-    var c = { hook: hook, line1: line1, line2: line2, allLines: allLines, occ: occ, occLine: occ.line, occShort: occ.short, occDead: occ.dead, cta: cta(input.p, acct, true), sceneName: scene.name };
+    var c = { hook: hook, line1: line1, line2: line2, allLines: allLines, occ: occ, occLine: occ.line, occShort: occ.short, occDead: occ.dead, cta: cta(input.p, acct, true, seed), sceneName: scene.name };
     var styles = ['red', 'navy', 'cream', 'mint', 'blue'];
     var coverMain = input.theme === '活动介绍' || input.theme === '福利与拉新' ? occ.short.replace(' ', '\n') : sub(pick(p0.cover, seed));
     var item = {
@@ -265,7 +267,7 @@
     [/女神节|妇女节|三八/, '女神节']
   ];
   /* 合规改写用 compliance.js 的同一份词表 */
-  function fixText(s) { return window.TMB_RULES.fix(s); }
+  function fixText(s) { return window.TMB_RULES.fix(s).replace(/和朋友逛街约闺蜜/g, '约闺蜜逛街'); }
   function fixItem(it) {
     it.title = fixText(it.title);
     it.cover.main = fixText(it.cover.main); it.cover.sub = fixText(it.cover.sub);
@@ -278,6 +280,9 @@
   function docText(t) { return [t.title, t.angle, t.form, t.cover.main, t.cover.sub, t.brief.hook, t.brief.msg, t.f.post || t.f.body || t.f.v1 || ''].join(' '); }
 
   /* 按想法找参考：同主题优先，再看账号、形式、档期、卖点和文字相似度 */
+  /* 节点档期按月份算（大概范围，够用来排除明显过季的模板） */
+  var SEASON = { '11.11 购机': [10, 11], '双12 / 跨年': [12, 1], '年货节': [1, 2], '情人节': [2], '女神节': [2, 3], '冬日打卡季': [11, 12, 1, 2] };
+  function inSeason(period, d) { var m = (d || new Date()).getMonth() + 1, r = SEASON[period]; return !r || r.indexOf(m) >= 0; }
   function rank(input, pool) {
     var ig = grams(input.idea), occ = OCC[input.occasion] || OCC['常规'];
     var same = pool.filter(function (t) { return t.p === input.p && t.type === input.theme; });
@@ -288,7 +293,7 @@
       if (t.form === input.form) s += 5;
       /* 档期要对得上：选了活动就优先同档期；没选就少用节日专属的模板 */
       if (input.occasion !== '常规') { if (t.period === occ.period || (occ.activity && t.activity === occ.activity)) s += 8; else if (t.period !== '常规') s -= 6; }
-      else if (['年货节', '情人节', '女神节', '双12 / 跨年', '11.11 购机'].indexOf(t.period) >= 0) s -= 4;
+      else if (['年货节', '情人节', '女神节', '双12 / 跨年', '11.11 购机'].indexOf(t.period) >= 0) s -= inSeason(t.period) ? 4 : 20; /* 十月底不该拿女神节的模板当骨架 */
       /* 没选活动时，不拿打卡 / 邀友 / 集赞这类活动专属模板当骨架，否则正文会讲一个没选的活动 */
       if (input.occasion === '常规' && t.activity) s -= 10;
       (input.points || []).forEach(function (k, j) { if (POINT_KW[k]) s += Math.min(3, kwCount(k, docText(t))) * (j ? 1 : 2); });
@@ -300,7 +305,7 @@
     }).sort(function (a, b) { return b.s - a.s; });
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
-  function quoted(idea) { var m = String(idea || '').match(/[“"「『]([^”"」』]{2,24})[”"」』]/); return m ? m[1].trim() : ''; }
+  function quoted(idea) { var m = String(idea || '').match(/[“"「『]([^”"」』]{2,34})[”"」』]/); return m ? m[1].trim() : ''; }
 
   function generateSmart(input, seed, pool) {
     seed = seed || 0;
@@ -315,13 +320,16 @@
     var top = ranked[seed % Math.min(3, ranked.length)].t;
     var refs = ranked.slice(0, 3).map(function (r) { return r.t; });
     var it = clone(top), occ = OCC[input.occasion] || OCC['常规'];
+    /* 想法里没提场景时，跟着骨架模板自己的场景走（模板讲午休，钩子就别写逛街） */
+    var topText = top.title + String(top.cover && top.cover.main || '') + String(top.f.post || top.f.body || top.f.v1 || '').slice(0, 80);
+    var sceneFor = function () { for (var k = 0; k < SCENES.length; k++) if (SCENES[k].re.test(idea)) return SCENES[k]; for (k = 0; k < 5; k++) if (SCENES[k].re.test(topText)) return SCENES[k]; return DEFAULT_SCENE; };
     var q = quoted(idea);
     var hook = q || (idea && idea.length <= 16 && !/[，,。；]/.test(idea) ? idea : '');
     var PBt = (window.TMB_PLAYBOOK || {})[input.p] && window.TMB_PLAYBOOK[input.p][input.theme];
     var pbTitle = '';
     if (!hook && PBt && PBt.gen && PBt.gen.hooks && PBt.gen.hooks.length) {
       /* 没有现成钩子：用本模块爆款公式里的开头和标题模板 */
-      var sc0 = DEFAULT_SCENE; for (var s0 = 0; s0 < SCENES.length; s0++) if (SCENES[s0].re.test(idea)) { sc0 = SCENES[s0]; break; }
+      var sc0 = sceneFor();
       hook = pick(PBt.gen.hooks, seed).replace(/\{scene\}/g, sc0.name);
       if (PBt.gen.titles && PBt.gen.titles.length) pbTitle = pick(PBt.gen.titles, seed).replace(/\{scene\}/g, sc0.name);
     }
@@ -329,7 +337,7 @@
       /* 没有现成钩子：按参考模板讲的卖点来起标题，标题和正文说的是一件事 */
       var tTxt = JSON.stringify(top.f) + top.title + top.angle;
       var kp = input.points.filter(function (k) { return kwHit(k, tTxt); })[0] || Object.keys(POINT_KW).sort(function (x, y) { return kwCount(y, tTxt) - kwCount(x, tTxt); }).filter(function (k) { return kwHit(k, tTxt); })[0];
-      var sc = DEFAULT_SCENE; for (var si = 0; si < SCENES.length; si++) if (SCENES[si].re.test(idea)) { sc = SCENES[si]; break; }
+      var sc = sceneFor();
       hook = kp && ['活动介绍', '门店体验'].indexOf(input.theme) >= 0 ? pick(POINTS[kp].hooks, seed).replace(/\{scene\}/g, sc.name) : rule.title;
     }
     var occ0 = OCC[input.occasion] || OCC['常规'];
@@ -387,7 +395,7 @@
     if (p === 'pyq') {
       var first = String(f.v1 || '').split(/[。！!]/)[0];
       f.v3 = f.v2 || f.v3; f.v2 = f.v1;
-      f.v1 = hook + '。' + (needOcc || !f.v2 ? occ.short + (occ.dead ? '，' + occ.dead : '') + '，' : '') + (input.acct === '老客' ? '想去的私我～' : '想试的点卡片，或找我拿本店优惠码～');
+      f.v1 = hook + '。' + (needOcc || !f.v2 ? occ.short + (occ.dead ? '，' + occ.dead : '') + '，' : '') + cta('pyq', input.acct, false, seed + hook.length) + '。';
       if (!first) f.v2 = rule.f.v2;
     }
     if (p === 'douyin' || p === 'xhs') {

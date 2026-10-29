@@ -35,7 +35,7 @@
   /* ---------- 情绪 ---------- */
   var EMO = [
     { k: 'pain', label: '怕疼', re: /疼|痛|刺|烫|灼|忍不住|受不了|敏感|红肿/g, point: '' },
-    { k: 'price', label: '怕贵', re: /贵|便宜|价格|多少钱|\d+(\.\d+)?\s*(元|块)|省钱|划算|性价比|白菜价|几百|几千|办卡|一次不到|奶茶钱|智商税/g, point: '价格反差' },
+    { k: 'price', label: '怕贵', re: /贵|便宜|价格|多少钱|\d+(\.\d+)?\s*(元|块|r\b)|一次\s*\d{2,}|花了?\s*\d+|\d+\.\d+|\d+\s*(vs|VS)\s*\d+|十几块|几十块|省钱|划算|性价比|白菜价|几百|几千|办卡|一次不到|奶茶钱|智商税/g, point: '价格反差' },
     { k: 'hassle', label: '怕麻烦', re: /预约|排队|麻烦|懒|省事|顺路|午休|下班|几分钟|方便|随时|不用等|通勤|楼下/g, point: '顺路就做' },
     { k: 'shy', label: '怕尴尬', re: /尴尬|尴不尬|社恐|推销|尬聊|没人|没有店员|一个人|隐私|害羞|被看|看不到|不好意思|拉着|被拉|i人/gi, point: '没人推销' },
     { k: 'clean', label: '怕不干净', re: /卫生|干净|消毒|清洁|脏|一次性/g, point: '看得见的干净' },
@@ -44,9 +44,10 @@
     { k: 'social', label: '结伴社交', re: /闺蜜|朋友|一起|同事|室友|姐妹们|对象|男朋友|女朋友|拉上/g, point: '' },
     { k: 'gadget', label: '想先试', re: /脱毛仪|吃灰|买前|先试|试用|值不值得买|种草/g, point: '先试再买' }
   ];
-  function detectEmo(text, comments) {
+  /* 情绪看内容本身：开头（标题 / 封面）算 2 倍，评论只做参考（评论里问“疼不疼”不代表这条内容在打怕疼） */
+  function detectEmo(text, comments, open, st) {
     return EMO.map(function (e) {
-      var s = cnt(e.re, text) + cnt(e.re, comments) * 0.5;
+      var s = cnt(e.re, text) + cnt(e.re, open) + cnt(e.re, comments) * 0.3 + (st && st.k === 'compare' && e.k === 'price' ? 1 : 0);
       return { k: e.k, label: e.label, s: s, point: e.point };
     }).filter(function (e) { return e.s > 0; }).sort(function (a, b) { return b.s - a.s; });
   }
@@ -182,7 +183,8 @@
     var P = window.TMB_PLATFORMS[p], names = P.themes.map(function (t) { return t.name; });
     var e0 = emos[0] ? emos[0].k : '';
     var want = [];
-    if (/打卡|第\s*\d+\s*(天|次)|晒|毕业/.test(text)) want.push('真实反馈和打卡');
+    if (/打卡|第\s*\d+\s*(天|次)|晒(单|图|一下|出来)|毕业/.test(text)) want.push('真实反馈和打卡');
+    if (st.k === 'list' || st.k === 'qa') want.push('科普答疑'); /* 清单 / 问答类收藏型内容，最适合迁移成科普 */
     if (/在哪|路线|怎么走|地铁|出口|几楼/.test(text)) want.push('门店指引和点位');
     if (e0 === 'deal' || e0 === 'social') want.push('福利与拉新', '活动介绍');
     if (st.k === 'qa' || (st.k === 'list' && e0 === 'pain') || e0 === 'pain') want.push('科普答疑');
@@ -202,7 +204,7 @@
     var first = sentences(body)[0] || title;
     var hooks = detectHooks(first, title, cover);
     if (!hooks.length) hooks = [{ k: 'test', label: '平铺开头', s: 0, quote: clip(first, 40), why: '开头没有明显钩子，可能靠画面、人设或话题本身；迁移时建议补一个钩子' }];
-    var emos = detectEmo(text, comments), st = detectStruct(text), topics = detectTopics(comments), sig = signals(p, input.data || {});
+    var st = detectStruct(text), emos = detectEmo(text, comments, [title, cover].join('\n'), st), topics = detectTopics(comments), sig = signals(p, input.data || {});
     var GEN = window.TMB_GEN || {};
 
     /* 封面 */
@@ -241,6 +243,7 @@
     if (!points.length) points = ['没人推销'];
     var form = (FORMS[p] || FORMS.douyin)[st.k] || window.TMB_PLATFORMS[p].forms[0];
     var occ = GEN.occOf ? GEN.occOf(text) : '常规';
+    if (occ === '冬季 20 次卡' && !/20 ?次|冬季|冬天/.test(text)) occ = '常规'; /* 对标自己的“8 次卡”不等于我们的冬季卡 */
     var h0 = hooks[0], h1 = hooks[1] || hooks[0];
     var mine = rewriteFor(h0.k, emos).slice(0, 3);
     var hB = h1.k !== h0.k ? h1 : { k: h0.k === 'ask' ? 'result' : 'ask', label: h0.k === 'ask' ? '结果前置' : '提问挑衅' };
